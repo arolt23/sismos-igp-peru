@@ -3,10 +3,8 @@ import pandas as pd
 import pydeck as pdk
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import HeatMap, MarkerCluster
 import plotly.express as px
 import json
-from datetime import datetime, timezone
 from geopy.distance import geodesic
 
 from scraper import obtener_sismos_en_vivo
@@ -21,7 +19,25 @@ from analysis import (
 from tectonics import FOSA_PERU_CHILE, calcular_distancia_fosa_km, identificar_secuencias_sismicas
 from geology import FALLAS_ACTIVAS_PERU
 
-st.set_page_config(page_title="Geovisor Sísmico Profesional - IGP & INGEMMET", layout="wide")
+st.set_page_config(page_title="Plataforma de Análisis Sísmico Perú - IGP", layout="wide")
+
+# CSS para evitar que Folium renderice gris y estilizar leyendas
+st.markdown("""
+<style>
+    iframe {
+        width: 100% !important;
+        border-radius: 8px;
+    }
+    .legend-box {
+        background-color: #1e1e1e;
+        color: white;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #444;
+        margin-bottom: 15px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 UBICACIONES_PERU = {
     "Lima": {"provincia": "Lima", "coords": (-12.0464, -77.0428)},
@@ -100,28 +116,29 @@ def preparar_master_dataset():
 
 df_master = preparar_master_dataset()
 
-# ==================== ALERTA EN VIVO (BANNER SUPERIOR) ====================
+# Banner de alerta reciente
 ultimos_eventos = df_master[df_master["fuente"] == "IGP (Tiempo Real)"]
 if not ultimos_eventos.empty:
     ultimo = ultimos_eventos.iloc[0]
     if ultimo["magnitud"] >= 4.5:
         st.error(
-            f"🔔 **EVENTO RECIENTE REGISTRADO:** M {ultimo['magnitud']} en {ultimo['referencia']} "
-            f"(Profundidad: {ultimo['profundidad_km']} km) - Nivel: {ultimo['nivel_riesgo']}"
+            f"🔔 **ÚLTIMO SISMO DETECTADO (IGP):** Magnitud {ultimo['magnitud']} M en {ultimo['referencia']} "
+            f"| Profundidad: {ultimo['profundidad_km']} km | {ultimo['nivel_riesgo']}"
         )
 
-st.title("🇵🇪 Centro de Análisis Sismotectónico y Peligro Sísmico - IGP / INGEMMET")
+st.title("🇵🇪 Monitor y Geovisor Sísmico del Perú")
+st.caption("Sistema de procesamiento, análisis físico y visualización de la actividad sismotectónica nacional.")
 
-# Filtros Laterales
-st.sidebar.header("📍 Filtros Territoriales")
+# --- BARRA LATERAL ---
+st.sidebar.header("📍 Sectorización Geográfica")
 deps_list = sorted(list(df_master["departamento"].unique()))
 dep_sel = st.sidebar.multiselect("Departamentos", options=deps_list, default=deps_list)
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚡ Parámetros Sísmicos")
-mag_rango = st.sidebar.slider("Magnitud (M)", 3.5, 8.5, (4.0, 8.5), step=0.1)
-prof_rango = st.sidebar.slider("Profundidad (km)", 0, 700, (0, 700), step=10)
-rango_anios = st.sidebar.slider("Periodo", int(df_master["anio"].min()), int(df_master["anio"].max()), (1970, 2026))
+st.sidebar.header("⚡ Filtros Sismológicos")
+mag_rango = st.sidebar.slider("Rango de Magnitud (Momento / Richter)", 3.5, 8.5, (4.0, 8.5), step=0.1)
+prof_rango = st.sidebar.slider("Rango de Profundidad (km)", 0, 700, (0, 700), step=10)
+rango_anios = st.sidebar.slider("Ventana Temporal (Años)", int(df_master["anio"].min()), int(df_master["anio"].max()), (1970, 2026))
 
 df_filtrado = df_master[
     (df_master["departamento"].isin(dep_sel)) &
@@ -133,118 +150,177 @@ df_filtrado = df_master[
     (df_master["anio"] <= rango_anios[1])
 ].copy()
 
-# KPIs
+# --- PANEL DE MÉTRICAS PRINCIPALES ---
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Eventos Activos", len(df_filtrado))
-k2.metric("Magnitud Máx.", f"{df_filtrado['magnitud'].max() if not df_filtrado.empty else 0} M")
+k1.metric("Sismos Visibles", len(df_filtrado), help="Total de eventos que cumplen con los filtros seleccionados.")
+k2.metric("Magnitud Máxima", f"{df_filtrado['magnitud'].max() if not df_filtrado.empty else 0} M", help="Mayor magnitud registrada en el conjunto filtrado.")
 criticos = len(df_filtrado[df_filtrado["nivel_riesgo"].str.contains("CRÍTICA|ROJA")])
-k3.metric("Alertas Severas/Críticas", criticos)
-k4.metric("Energía Acumulada", f"{df_filtrado['energia_tnt_ton'].sum():,.0f} Ton TNT" if not df_filtrado.empty else "0")
+k3.metric("Eventos Severos / Críticos", criticos, help="Sismos de alta magnitud ocurridos a poca distancia de zonas pobladas.")
+k4.metric("Energía Acumulada", f"{df_filtrado['energia_tnt_ton'].sum():,.0f} Ton TNT" if not df_filtrado.empty else "0", help="Equivalente en dinamita de la energía elástica liberada.")
 
-# Pestañas
+st.markdown("---")
+
+# --- PESTAÑAS PRINCIPALES ---
 tab_mapas, tab_gutenberg, tab_geologia, tab_telegram, tab_qgis = st.tabs([
-    "🗺️ Mapas 2D/3D & Fallas",
+    "🗺️ Visor Cartográfico (2D / 3D)",
     "📈 Peligro Sísmico (b-value)",
-    "🌋 Fallas Activas INGEMMET",
-    "📲 Notificaciones Telegram",
-    "📐 Integración QGIS"
+    "🌋 Fallas Geológicas Activas",
+    "📲 Centro de Alertas",
+    "📐 Exportación SIG / QGIS"
 ])
 
-# --- TAB 1: MAPAS 2D Y 3D CON GEOLOGÍA ---
+# ==================== PESTAÑA 1: MAPAS ====================
 with tab_mapas:
-    modo = st.radio("Tipo de Cartografía:", ["2D (OpenStreetMap con Fosa y Fallas Corticales)", "3D (PyDeck Tectónico)"], horizontal=True)
-    colores_hex = {"Superficial (0-60 km)": "#E63946", "Intermedio (61-300 km)": "#F4A261", "Profundo (>300 km)": "#2A9D8F"}
+    col_izq, col_der = st.columns([3, 1])
+    
+    with col_der:
+        st.markdown("### 📖 Leyenda del Mapa")
+        st.markdown("""
+        **Profundidad del Hipocentro:**
+        * 🔴 **Superficial (0 - 60 km):** Mayor potencial destructivo en superficie.
+        * 🟠 **Intermedio (61 - 300 km):** Ocurren dentro de la placa en subducción.
+        * 🔵 **Profundo (> 300 km):** Sismos en el manto terrestre (selva baja/frontera).
+        
+        **Estructuras Geológicas:**
+        * 🟦 **Línea Azul Continua:** Fosa oceánica Perú-Chile (límite de placas).
+        * 🟪 **Línea Púrpura Discontinua:** Fallas continentales activas (INGEMMET).
+        
+        **Tamaño del Círculo:**
+        * Proporcional a la **Magnitud ($M$)** del sismo.
+        """)
+        
+        modo = st.radio("Tipo de Visor:", ["🗺️ Mapa 2D con Fallas", "🌐 Relieve 3D de Hipocentros"])
 
-    if modo == "2D (OpenStreetMap con Fosa y Fallas Corticales)":
-        m = folium.Map(location=[-9.19, -75.01], zoom_start=5, tiles="OpenStreetMap")
-        
-        # 1. Fosa marina
-        folium.PolyLine(FOSA_PERU_CHILE, color="#1D3557", weight=3.5, opacity=0.85, tooltip="Eje de Fosa Perú-Chile (Subducción)").add_to(m)
-        
-        # 2. Fallas INGEMMET
-        for falla in FALLAS_ACTIVAS_PERU:
+    with col_izq:
+        if modo == "🗺️ Mapa 2D con Fallas":
+            # Mapbox / OpenStreetMap con configuración anti-parpadeo
+            m = folium.Map(
+                location=[-9.19, -75.01],
+                zoom_start=5,
+                tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                attr="&copy; OpenStreetMap contributors",
+                control_scale=True
+            )
+            
+            # Trazo de la Fosa Perú-Chile
             folium.PolyLine(
-                falla["coords"],
-                color="#7209B7",
-                weight=3,
-                dash_array="5, 5",
-                tooltip=f"Falla Activa INGEMMET: {falla['nombre']} ({falla['tipo']})"
-            ).add_to(m)
-
-        # 3. Puntos sísmicos
-        for _, r in df_filtrado.iterrows():
-            folium.CircleMarker(
-                location=[r["latitud"], r["longitud"]],
-                radius=max(r["magnitud"] * 2.2, 3),
-                color=colores_hex.get(r["tipo_profundidad"], "#333333"),
-                fill=True,
-                fill_opacity=0.75,
-                popup=f"<b>{r['referencia']}</b><br>M: {r['magnitud']} | Prof: {r['profundidad_km']} km<br>Nivel: {r['nivel_riesgo']}"
+                FOSA_PERU_CHILE,
+                color="#1D3557",
+                weight=3.5,
+                opacity=0.9,
+                tooltip="Eje de Fosa Perú-Chile (Zona de Subducción)"
             ).add_to(m)
             
-        st_folium(m, width=1100, height=520)
-    else:
-        df_filtrado["deck_color"] = df_filtrado["tipo_profundidad"].apply(
-            lambda t: [230, 57, 70, 180] if "Superficial" in t else ([244, 162, 97, 180] if "Intermedio" in t else [42, 157, 143, 180])
-        )
-        layer = pdk.Layer(
-            "ColumnLayer",
-            data=df_filtrado,
-            get_position=["longitud", "latitud"],
-            get_elevation="profundidad_km",
-            elevation_scale=1400,
-            radius=7500,
-            get_fill_color="deck_color",
-            pickable=True
-        )
-        st.pydeck_chart(pdk.Deck(
-            layers=[layer],
-            initial_view_state=pdk.ViewState(latitude=-12.04, longitude=-75.50, zoom=5.1, pitch=50, bearing=-15),
-            tooltip={"html": "<b>{referencia}</b><br/>M: {magnitud} | Prof: {profundidad_km} km"}
-        ))
+            # Fallas activas
+            for falla in FALLAS_ACTIVAS_PERU:
+                folium.PolyLine(
+                    falla["coords"],
+                    color="#7209B7",
+                    weight=3,
+                    dash_array="6, 6",
+                    tooltip=f"Falla: {falla['nombre']} ({falla['tipo']})"
+                ).add_to(m)
 
-# --- TAB 2: GUTENBERG-RICHTER (B-VALUE) ---
+            colores_hex = {
+                "Superficial (0-60 km)": "#E63946",
+                "Intermedio (61-300 km)": "#F4A261",
+                "Profundo (>300 km)": "#2A9D8F"
+            }
+
+            for _, r in df_filtrado.iterrows():
+                folium.CircleMarker(
+                    location=[r["latitud"], r["longitud"]],
+                    radius=max(r["magnitud"] * 2.2, 3.5),
+                    color=colores_hex.get(r["tipo_profundidad"], "#333333"),
+                    fill=True,
+                    fill_opacity=0.75,
+                    popup=f"<b>{r['referencia']}</b><br>"
+                          f"Magnitud: <b>{r['magnitud']} M</b><br>"
+                          f"Profundidad: <b>{r['profundidad_km']} km</b><br>"
+                          f"Distancia a fosa: <b>{r['distancia_fosa_km']} km</b><br>"
+                          f"Riesgo poblacional: <b>{r['nivel_riesgo']}</b>"
+                ).add_to(m)
+
+            # Renderizado responsivo
+            st_folium(m, width=None, height=520, returned_objects=[])
+            
+        else:
+            st.caption("Usa **Ctrl + Clic izquierdo** (o clic derecho) para inclinar la vista y analizar la profundidad hacia el interior de la Tierra.")
+            
+            df_filtrado["deck_color"] = df_filtrado["tipo_profundidad"].apply(
+                lambda t: [230, 57, 70, 180] if "Superficial" in t else ([244, 162, 97, 180] if "Intermedio" in t else [42, 157, 143, 180])
+            )
+            
+            layer_3d = pdk.Layer(
+                "ColumnLayer",
+                data=df_filtrado,
+                get_position=["longitud", "latitud"],
+                get_elevation="profundidad_km",
+                elevation_scale=1500,
+                radius=7500,
+                get_fill_color="deck_color",
+                pickable=True
+            )
+            
+            st.pydeck_chart(pdk.Deck(
+                layers=[layer_3d],
+                initial_view_state=pdk.ViewState(latitude=-12.04, longitude=-75.50, zoom=5.1, pitch=50, bearing=-15),
+                tooltip={"html": "<b>{referencia}</b><br/>Magnitud: {magnitud} M<br/>Profundidad: {profundidad_km} km"}
+            ))
+
+# ==================== PESTAÑA 2: GUTENBERG-RICHTER ====================
 with tab_gutenberg:
-    st.subheader("Estimación de Asperezas y Tensión Tectónica (b-value de Gutenberg-Richter)")
-    st.markdown(
-        r"La relación $\log_{10} N = a - b M$ describe la frecuencia de sismos por magnitud. "
-        "Un valor **$b < 0.85$** indica que la corteza está sometida a altos esfuerzos tectónicos y retiene energía sin liberar con sismos menores."
-    )
+    st.subheader("Análisis de Tensión y Acumulación Tectónica (Ley de Gutenberg-Richter)")
     
-    dep_analisis = st.selectbox("Seleccionar Departamento para análisis de b-value:", options=deps_list)
+    with st.expander("📚 ¿Qué significa este gráfico y el valor 'b'?", expanded=True):
+        st.markdown(r"""
+        La relación de Gutenberg-Richter modela cuántos sismos pequeños ocurren por cada sismo grande:
+        $$\log_{10} N = a - b M$$
+        * **El valor $b$ (Pendiente):** Mide el estado de esfuerzos de la corteza.
+          * **$b < 0.85$ (Crítico):** La zona acumula mucha tensión sin liberar energía suficiente. Mayor probabilidad de un evento mayor en el mediano/largo plazo.
+          * **$0.85 \le b \le 1.05$ (Normal):** Liberación homogénea y constante de energía.
+          * **$b > 1.05$ (Bajo esfuerzo):** Predominio de enjambres o microsismos que disipan energía fácilmente.
+        """)
+
+    dep_analisis = st.selectbox("Seleccionar Departamento a evaluar:", options=deps_list)
     df_dep = df_master[df_master["departamento"] == dep_analisis]
-    
     b_val, diag = calcular_b_value_departamento(df_dep)
     
-    col_b1, col_b2 = st.columns([1, 2])
-    with col_b1:
-        st.metric(f"b-value ({dep_analisis})", f"{b_val if b_val else 'N/A'}")
-        st.info(f"**Diagnóstico Geotectónico:**\n{diag}")
-    
-    with col_b2:
+    c_b1, c_b2 = st.columns([1, 2])
+    with c_b1:
+        st.metric(f"Valor 'b' calculado ({dep_analisis})", f"{b_val if b_val else 'N/A'}")
+        st.info(f"**Diagnóstico de Tensión:**\n\n{diag}")
+        
+    with c_b2:
         mags_conteo = df_dep[df_dep["magnitud"] >= 4.0]["magnitud"].round(1).value_counts().reset_index()
         mags_conteo.columns = ["magnitud", "conteo"]
         mags_conteo = mags_conteo.sort_values(by="magnitud")
         fig_gr = px.scatter(
             mags_conteo, x="magnitud", y="conteo", log_y=True,
-            title=f"Curva Frecuencia-Magnitud: {dep_analisis}",
-            labels={"magnitud": "Magnitud (M)", "conteo": "N° de Eventos (Escala Log)"}
+            title=f"Distribución Frecuencia vs. Magnitud ({dep_analisis})",
+            labels={"magnitud": "Magnitud (M)", "conteo": "Cantidad de Sismos (Escala Logarítmica)"}
         )
         st.plotly_chart(fig_gr, width="stretch")
 
-# --- TAB 3: FALLAS ACTIVAS INGEMMET ---
+# ==================== PESTAÑA 3: FALLAS GEOLÓGICAS ====================
 with tab_geologia:
-    st.subheader("Catálogo de Fallas Cuaternarias Continentales")
+    st.subheader("Catálogo de Fallas Geológicas Activas (INGEMMET)")
+    with st.expander("📚 ¿Cómo interpretar las fallas geológicas continentales?"):
+        st.markdown("""
+        En el Perú existen dos grandes fuentes sísmicas:
+        1. **Sismos de Interplaca (Subducción):** Ocurren en la costa donde la placa de Nazca se hunde bajo el continente.
+        2. **Sismos Corticales (Fallas Activas):** Ocurren en la cordillera y selva por fracturas directas en la corteza superficial continental. Suelen ser poco profundos ($< 20\text{ km}$) y muy dañinos a nivel local (como el terremoto de Ancash en 1970 o Cusco en 1950).
+        """)
     df_fallas = pd.DataFrame([{"Falla": f["nombre"], "Tipo Cinemático": f["tipo"]} for f in FALLAS_ACTIVAS_PERU])
     st.table(df_fallas)
 
-# --- TAB 4: ALERTAS TELEGRAM ---
+# ==================== PESTAÑA 4: ALERTAS TELEGRAM ====================
 with tab_telegram:
-    st.subheader("Configuración de Notificaciones Automáticas por Telegram")
-    st.markdown("Permite enviar el último evento crítico detectado directamente a un canal o chat privado.")
+    st.subheader("Centro de Alertas Sísmicas por Telegram")
+    st.markdown("Conecta tu bot para recibir un reporte estructurado cuando ocurra un evento crítico.")
     
-    t_token = st.text_input("Telegram Bot Token (ej: 123456:ABC-DEF1234ghIkl)", type="password")
-    t_chat = st.text_input("Chat ID (ej: -100123456789 o tu ID numérico)")
+    t_token = st.text_input("Bot Token de Telegram", type="password")
+    t_chat = st.text_input("Chat ID de Destino")
     
     if st.button("Enviar Alerta de Prueba"):
         if t_token and t_chat:
@@ -252,15 +328,17 @@ with tab_telegram:
                 s_test = df_filtrado.iloc[0].to_dict()
                 exito = enviar_alerta_telegram(t_token, t_chat, s_test)
                 if exito:
-                    st.success("✅ ¡Mensaje de alerta enviado a Telegram correctamente!")
+                    st.success("✅ Alerta enviada correctamente a Telegram.")
                 else:
-                    st.error("❌ Error al enviar. Verifica el Token y Chat ID.")
+                    st.error("❌ Fallo al conectar. Revisa el Token y Chat ID.")
         else:
-            st.warning("Ingresa el Token y Chat ID para realizar la prueba.")
+            st.warning("Completa las credenciales de Telegram para realizar el envío.")
 
-# --- TAB 5: QGIS ---
+# ==================== PESTAÑA 5: QGIS ====================
 with tab_qgis:
-    st.subheader("Exportación de Capa Vectorial Completa")
+    st.subheader("Exportación de Datos Geoespaciales")
+    st.markdown("Descarga la base de datos completa procesada en formato **GeoJSON** lista para abrirse en QGIS, ArcGIS o Google Earth.")
+    
     def exportar_geojson(df):
         features = []
         for _, r in df.iterrows():
@@ -280,8 +358,8 @@ with tab_qgis:
         return json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2)
 
     st.download_button(
-        label="📥 Descargar GeoJSON Completo",
+        label="📥 Descargar Capa Vectorial (.GeoJSON)",
         data=exportar_geojson(df_filtrado),
-        file_name="sismos_geologia_peru.geojson",
+        file_name="sismos_completo_peru.geojson",
         mime="application/geo+json"
     )
