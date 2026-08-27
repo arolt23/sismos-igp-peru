@@ -7,6 +7,7 @@ from folium.plugins import HeatMap, MarkerCluster
 import plotly.express as px
 import json
 import streamlit.components.v1 as components
+import random
 from geopy.distance import geodesic
 
 from scraper import obtener_sismos_en_vivo
@@ -122,7 +123,7 @@ def preparar_master_dataset():
 
 df_master = preparar_master_dataset()
 
-# ==================== CRÉDITOS Y BRANDING ====================
+# Branding
 st.sidebar.markdown("""
 <div class="credit-box">
     <h3 style="margin:0; font-size: 1.1rem; color: #fff;">⚡ MÁQUINA TIERNA</h3>
@@ -132,7 +133,7 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Banner de evento reciente
+# Banner en vivo
 ultimos_eventos = df_master[df_master["fuente"] == "IGP (Tiempo Real)"]
 if not ultimos_eventos.empty:
     ultimo = ultimos_eventos.iloc[0]
@@ -145,7 +146,7 @@ if not ultimos_eventos.empty:
 st.title("🇵🇪 Plataforma Sismotectónica & Live Visuals - IGP")
 st.caption("Desarrollado por Arolt para **Máquina Tierna** | Análisis territorial, geofísica e interpretación generativa.")
 
-# ==================== FILTROS LATERALES ====================
+# Filtros laterales
 st.sidebar.header("📍 Filtros Territoriales")
 deps_list = sorted(list(df_master["departamento"].unique()))
 dep_sel = st.sidebar.multiselect("Departamentos", options=deps_list, default=deps_list)
@@ -154,7 +155,7 @@ provs_list = sorted(list(df_master[df_master["departamento"].isin(dep_sel)]["pro
 prov_sel = st.sidebar.multiselect("Provincias", options=provs_list, default=provs_list)
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚡ Filtros Físicos y Temporales")
+st.sidebar.header("⚡ Filtros Sismológicos")
 mag_rango = st.sidebar.slider("Rango de Magnitud (M)", 3.5, 8.5, (4.0, 8.5), step=0.1)
 prof_rango = st.sidebar.slider("Rango de Profundidad (km)", 0, 700, (0, 700), step=10)
 rango_anios = st.sidebar.slider("Periodo (Años)", int(df_master["anio"].min()), int(df_master["anio"].max()), (1970, 2026))
@@ -189,7 +190,7 @@ colores_hex = {
 # ==================== PESTAÑAS ====================
 tab_mapas, tab_vj, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab_secuencias, tab_gutenberg, tab_qgis = st.tabs([
     "🗺️ Visor Cartográfico",
-    "🎛️ VJ Live Visuals (Hydra / Shaders)",
+    "🎛️ VJ Live Visuals & Synth",
     "⏳ Línea de Tiempo",
     "🏙️ Proximidad Urbana",
     "🌊 Subducción (Wadati-Benioff)",
@@ -202,7 +203,6 @@ tab_mapas, tab_vj, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab
 # --- TAB 1: MAPAS 2D / 3D ---
 with tab_mapas:
     c_mapa, c_leyenda = st.columns([3, 1])
-    
     with c_leyenda:
         st.markdown("### 📖 Leyenda del Mapa")
         st.markdown("""
@@ -221,11 +221,9 @@ with tab_mapas:
     with c_mapa:
         if "2D" in modo:
             m = folium.Map(location=[-9.19, -75.01], zoom_start=5, tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr="&copy; OpenStreetMap")
-            
             folium.PolyLine(FOSA_PERU_CHILE, color="#1D3557", weight=3.5, tooltip="Fosa Perú-Chile").add_to(m)
             for f in FALLAS_ACTIVAS_PERU:
                 folium.PolyLine(f["coords"], color="#7209B7", weight=3, dash_array="6, 6", tooltip=f"Falla {f['nombre']}").add_to(m)
-            
             for dep, d_info in UBICACIONES_PERU.items():
                 folium.Marker(location=d_info["coords"], tooltip=f"Zona Urbana: {dep}", icon=folium.Icon(color="green", icon="info-sign")).add_to(m)
 
@@ -235,8 +233,7 @@ with tab_mapas:
                         location=[r["latitud"], r["longitud"]],
                         radius=max(r["magnitud"] * 2.2, 3),
                         color=colores_hex.get(r["tipo_profundidad"], "#333"),
-                        fill=True,
-                        fill_opacity=0.75,
+                        fill=True, fill_opacity=0.75,
                         popup=f"<b>{r['referencia']}</b><br>M: {r['magnitud']} | Prof: {r['profundidad_km']} km<br>Dist. Población: {r['distancia_poblado_km']} km"
                     ).add_to(m)
             elif modo == "2D (Clusters Agrupados)":
@@ -270,106 +267,243 @@ with tab_mapas:
                 tooltip={"html": "<b>{referencia}</b><br/>M: {magnitud} | Profundidad: {profundidad_km} km"}
             ))
 
-# --- TAB 2: VJ LIVE VISUALS & HYDRA SYNTH ---
+# --- TAB 2: VJ LIVE VISUALS & HYDRA SYNTH CONSOLA PRO ---
 with tab_vj:
-    st.subheader("🎛️ Generador Audiovisual Reactivo a Datos Sísmicos (VJ Core)")
-    st.markdown("""
-    Este módulo convierte los sismos en señales de modulación visual. 
-    Selecciona un evento para generar texturas generativas en **Canvas/WebGL** o exportar el código en vivo para **Hydra Synth** y protocolos **OSC / MIDI**.
-    """)
+    st.subheader("🎛️ Consola VJ & Sintetizador Generativo Reactivo")
+    st.markdown("Genera visuales en tiempo real modulados por datos sísmicos del Perú, ajusta sliders manuales (dimmers) o descarga las capturas para proyecciones.")
     
     if not df_filtrado.empty:
-        opciones_sismos = [f"{r['fecha_hora']} | M {r['magnitud']} - {r['referencia']}" for _, r in df_filtrado.head(30).iterrows()]
-        sismo_sel_str = st.selectbox("Seleccionar Sismo Modulador:", opciones_sismos)
-        idx_sel = opciones_sismos.index(sismo_sel_str)
-        sismo_vj = df_filtrado.iloc[idx_sel]
+        # Estado de sesión para presets aleatorios
+        if "vj_seed" not in st.session_state:
+            st.session_state.vj_seed = 100
         
-        # Variables normalizadas para síntesis visual
-        v_freq = float(sismo_vj["magnitud"]) * 4.0
-        v_speed = max(0.1, round(float(sismo_vj["magnitud"]) / 3.0, 2))
-        v_depth_mod = round(float(sismo_vj["profundidad_km"]) / 30.0, 2)
-        v_dist_mod = round(float(sismo_vj["distancia_fosa_km"]) / 50.0, 2)
+        # Selección del Sismo Modulador
+        c_sel1, c_sel2 = st.columns([2.5, 1])
+        with c_sel1:
+            opciones_sismos = [f"{r['fecha_hora']} | M {r['magnitud']} - {r['referencia']}" for _, r in df_filtrado.head(40).iterrows()]
+            sismo_sel_str = st.selectbox("🎯 Seleccionar Sismo Portador (Carrier Data):", opciones_sismos)
+            idx_sel = opciones_sismos.index(sismo_sel_str)
+            sismo_vj = df_filtrado.iloc[idx_sel]
+        with c_sel2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🎲 Mutar / Randomizar Visual"):
+                st.session_state.vj_seed = random.randint(1, 9999)
+                st.rerun()
+
+        st.markdown("---")
+
+        # CONSOLA DE DIMMERS / SLIDERS MANUALES
+        st.markdown("#### 🎚️ Rack de Control & Dimmers Audiovisuales")
+        dim1, dim2, dim3, dim4, dim5 = st.columns(5)
         
-        col_v1, col_v2 = st.columns([1.5, 1])
+        with dim1:
+            modo_visual = st.selectbox(
+                "Modo de Renderizado",
+                ["Ondas Concéntricas (Pulsos)", "Malla de Placas (Partículas)", "Túnel Hipocentral (Vórtice)", "Espectro Glitch Tectónico"]
+            )
+        with dim2:
+            dim_gain = st.slider("Ganancia Sísmica (Gain)", 0.2, 3.0, 1.0, 0.1, help="Multiplica la energía sísmica sobre el dibujo.")
+        with dim3:
+            dim_speed = st.slider("Velocidad de Fase (Speed)", 0.1, 5.0, 1.2, 0.1, help="Controla la tasa de refresco y movimiento.")
+        with dim4:
+            dim_trail = st.slider("Retroalimentación (Trail)", 0.01, 0.50, 0.15, 0.01, help="Persistencia de la imagen / Estela oscura.")
+        with dim5:
+            dim_noise = st.slider("Ruido Tectónico (Turbulence)", 0.0, 50.0, 15.0, 1.0, help="Deformación estocástica de las coordenadas.")
+
+        # Inyección de datos sísmicos normalizados
+        base_freq = float(sismo_vj["magnitud"]) * 3.5 * dim_gain
+        base_speed = float(sismo_vj["magnitud"]) * 0.25 * dim_speed
+        base_depth = float(sismo_vj["profundidad_km"]) / 25.0
+        base_fosa = float(sismo_vj["distancia_fosa_km"]) / 40.0
         
-        with col_v1:
-            st.markdown("#### 📺 Visualizador Reactivo en Vivo (WebGL / Canvas)")
+        col_view, col_code = st.columns([1.7, 1.1])
+        
+        with col_view:
+            st.markdown(f"#### 📺 Pantalla de Emisión: **{modo_visual}**")
             
-            # Sintetizador visual embebido interactivo
-            canvas_html = f"""
-            <div style="text-align: center; background: #000; border-radius: 10px; padding: 10px;">
-                <canvas id="vjCanvas" width="600" height="380" style="border: 1px solid #7209b7; width: 100%; border-radius: 8px;"></canvas>
+            # Canvas Generativo WebGL / 2D con motor multicapa y descarga PNG nativa
+            canvas_script = f"""
+            <div style="background: #000; border-radius: 10px; padding: 12px; border: 1px solid #7209b7; text-align: center;">
+                <canvas id="vjCanvas" width="700" height="420" style="width: 100%; border-radius: 6px;"></canvas>
+                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #bbb; font-size: 12px; font-family: monospace;">Sismo: M {sismo_vj['magnitud']} | Prof: {sismo_vj['profundidad_km']}km | Seed: {st.session_state.vj_seed}</span>
+                    <button onclick="downloadVisual()" style="background: #f72585; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Guardar Captura (.PNG)</button>
+                </div>
             </div>
             <script>
                 const canvas = document.getElementById('vjCanvas');
                 const ctx = canvas.getContext('2d');
-                let t = 0;
+                let t = {st.session_state.vj_seed};
                 
-                const freq = {v_freq};
-                const speed = {v_speed};
-                const depth = {v_depth_mod};
-                const distFosa = {v_dist_mod};
-                
+                const mode = "{modo_visual}";
+                const freq = {base_freq};
+                const speed = {base_speed};
+                const depth = {base_depth};
+                const fosa = {base_fosa};
+                const trail = {dim_trail};
+                const noiseAmt = {dim_noise};
+
+                // Inicializar partículas si es modo malla
+                const particles = [];
+                for(let i = 0; i < 70; i++) {{
+                    particles.push({{
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * canvas.height,
+                        vx: (Math.random() - 0.5) * speed * 2,
+                        vy: (Math.random() - 0.5) * speed * 2,
+                        size: Math.random() * freq + 2
+                    }});
+                }}
+
                 function draw() {{
-                    t += 0.03 * speed;
-                    ctx.fillStyle = 'rgba(10, 5, 20, 0.15)';
+                    t += 0.02 * speed;
+                    
+                    // Fondo con trail / feedback
+                    ctx.fillStyle = `rgba(5, 3, 10, ${{trail}})`;
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     
                     const cx = canvas.width / 2;
                     const cy = canvas.height / 2;
-                    const rings = 12 + Math.floor(freq);
-                    
-                    for (let i = 0; i < rings; i++) {{
-                        ctx.beginPath();
-                        const radius = (i * 18 + (t * 40) % 250);
-                        const angleStep = (Math.PI * 2) / 36;
-                        
-                        for (let a = 0; a < Math.PI * 2; a += angleStep) {{
-                            const wave = Math.sin(a * freq + t) * (depth * 4) + Math.cos(a * 3 - t) * distFosa;
-                            const r = radius + wave;
-                            const x = cx + Math.cos(a) * r;
-                            const y = cy + Math.sin(a) * r;
-                            
-                            if (a === 0) ctx.moveTo(x, y);
-                            else ctx.lineTo(x, y);
+
+                    if (mode === "Ondas Concéntricas (Pulsos)") {{
+                        const rings = 10 + Math.floor(freq * 1.5);
+                        for (let i = 0; i < rings; i++) {{
+                            ctx.beginPath();
+                            const rBase = (i * 20 + (t * 50) % 300);
+                            for (let a = 0; a < Math.PI * 2; a += 0.15) {{
+                                const wave = Math.sin(a * freq + t) * (depth * 3) + Math.cos(a * 4 - t) * noiseAmt;
+                                const r = rBase + wave;
+                                const x = cx + Math.cos(a) * r;
+                                const y = cy + Math.sin(a) * r;
+                                if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                            }}
+                            ctx.closePath();
+                            ctx.strokeStyle = `hsl(${{(i * 30 + t * 60) % 360}}, 90%, 65%)`;
+                            ctx.lineWidth = 1.5 + (depth > 6 ? 2 : 0.8);
+                            ctx.stroke();
                         }}
-                        
-                        ctx.closePath();
-                        ctx.strokeStyle = `hsl(${{(i * 25 + t * 50) % 360}}, 85%, 60%)`;
-                        ctx.lineWidth = 1.5 + (depth > 5 ? 2 : 0.5);
-                        ctx.stroke();
+                    }} 
+                    else if (mode === "Malla de Placas (Partículas)") {{
+                        for (let i = 0; i < particles.length; i++) {{
+                            let p = particles[i];
+                            p.x += p.vx;
+                            p.y += p.vy;
+                            if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                            if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                            
+                            ctx.fillStyle = `hsl(${{(p.x + t * 40) % 360}}, 85%, 60%)`;
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                            ctx.fill();
+
+                            for (let j = i + 1; j < particles.length; j++) {{
+                                let p2 = particles[j];
+                                let dist = Math.hypot(p.x - p2.x, p.y - p2.y);
+                                if (dist < 100 + noiseAmt) {{
+                                    ctx.strokeStyle = `rgba(180, 50, 240, ${{1 - dist / 120}})`;
+                                    ctx.lineWidth = 1;
+                                    ctx.beginPath();
+                                    ctx.moveTo(p.x, p.y);
+                                    ctx.lineTo(p2.x, p2.y);
+                                    ctx.stroke();
+                                }}
+                            }}
+                        }}
+                    }}
+                    else if (mode === "Túnel Hipocentral (Vórtice)") {{
+                        const spirals = 16;
+                        for (let i = 0; i < spirals; i++) {{
+                            ctx.beginPath();
+                            const rad = Math.pow(i / spirals, 1.8) * (canvas.width * 0.6);
+                            const rot = t * (i % 2 === 0 ? 1 : -1) * 0.8;
+                            for (let a = 0; a < Math.PI * 2; a += 0.2) {{
+                                const x = cx + Math.cos(a + rot) * (rad + Math.sin(a * 6 + t) * noiseAmt);
+                                const y = cy + Math.sin(a + rot) * (rad + Math.cos(a * 6 - t) * depth);
+                                if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                            }}
+                            ctx.closePath();
+                            ctx.strokeStyle = `hsl(${{(i * 20 + t * 80) % 360}}, 100%, ${{50 + i * 2}}%)`;
+                            ctx.lineWidth = 2;
+                            ctx.stroke();
+                        }}
+                    }}
+                    else if (mode === "Espectro Glitch Tectónico") {{
+                        const bars = 32;
+                        const w = canvas.width / bars;
+                        for (let i = 0; i < bars; i++) {{
+                            const h = Math.abs(Math.sin(i * 0.5 + t * 2) * (canvas.height * 0.8) * (freq / 15)) + (Math.random() * noiseAmt * 2);
+                            const hue = (i * 12 + t * 100) % 360;
+                            ctx.fillStyle = `hsl(${{hue}}, 90%, 55%)`;
+                            ctx.fillRect(i * w, cy - h/2, w - 2, h);
+                            
+                            // Líneas horizontales de glitch
+                            if (Math.random() > 0.85) {{
+                                ctx.fillStyle = "rgba(255,255,255,0.7)";
+                                ctx.fillRect(0, Math.random() * canvas.height, canvas.width, 2);
+                            }}
+                        }}
                     }}
                     requestAnimationFrame(draw);
                 }}
                 draw();
+
+                function downloadVisual() {{
+                    const link = document.createElement('a');
+                    link.download = `sismo_visual_${{Date.now()}}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }}
             </script>
             """
-            components.html(canvas_html, height=420)
+            components.html(canvas_script, height=480)
 
-        with col_v2:
-            st.markdown("#### ⚡ Parámetros de Síntesis")
-            st.code(f"""
-// Señales moduladoras:
-MAGNITUD      -> Frecuencia Oscilación: {v_freq:.1f}
-PROFUNDIDAD   -> Deformación Ondulatoria: {v_depth_mod:.2f}
-DIST. A FOSA  -> Modulación de Radio: {v_dist_mod:.2f}
-VELOCIDAD     -> Ratio de Fase: {v_speed:.2f}
+        with col_code:
+            st.markdown("#### ⚡ Parámetros Sísmicos Mapeados")
+            st.code(f"""// Telemetría del Sismo Seleccionado
+MAGNITUD:      {sismo_vj['magnitud']} M  -> Frecuencia: {base_freq:.1f}
+PROFUNDIDAD:   {sismo_vj['profundidad_km']} km -> Deformación: {base_depth:.2f}
+DISTANCIA FOSA:{sismo_vj['distancia_fosa_km']} km -> Modulador: {base_fosa:.2f}
+ESTADO DIMMER: Gain={dim_gain}x | Speed={dim_speed}x | Noise={dim_noise}
             """, language="javascript")
+
+            st.markdown("#### 🔮 Live Patch para Hydra Synth")
+            st.caption("Copia y pega en [hydra.ojack.xyz](https://hydra.ojack.xyz):")
             
-            st.markdown("#### 🔮 Código para Hydra Synth")
-            st.caption("Pega este código directamente en [hydra.ojack.xyz](https://hydra.ojack.xyz):")
-            hydra_code = f"""// Live Patch - Máquina Tierna (Sismo M {sismo_vj['magnitud']} en {sismo_vj['referencia']})
-osc({v_freq:.1f}, {v_speed:.2f}, {v_depth_mod:.2f})
-  .modulate(noise({v_dist_mod:.2f}), () => Math.sin(time) * 0.5)
+            if modo_visual == "Ondas Concéntricas (Pulsos)":
+                hydra_patch = f"""// Patch Ondas Máquina Tierna - Sismo M {sismo_vj['magnitud']}
+osc({base_freq:.1f}, {base_speed:.2f}, {base_depth:.2f})
+  .modulate(noise({base_fosa:.2f}), () => Math.sin(time) * 0.5)
   .color(0.9, 0.2, 0.8)
   .kaleid({max(3, int(sismo_vj['magnitud']))})
   .rotate(0.1, 0.05)
-  .modulatePixelate(voronoi({v_freq:.1f}, 0.5), 8)
   .out()"""
-            st.code(hydra_code, language="javascript")
-            
-            st.markdown("#### 📡 Formato para OSC / Resolume / TouchDesigner")
-            st.code(f"/sismo/peru [float: {sismo_vj['magnitud']}], [float: {sismo_vj['profundidad_km']}], [float: {sismo_vj['distancia_fosa_km']}]", language="text")
+            elif modo_visual == "Malla de Placas (Partículas)":
+                hydra_patch = f"""// Patch Voronoi Cortical - Sismo M {sismo_vj['magnitud']}
+voronoi({base_freq:.1f}, {base_speed:.2f}, {dim_noise/10.0:.2f})
+  .color(0.2, 0.8, 0.9)
+  .modulatePixelate(noise({base_fosa:.2f}), 12)
+  .add(osc(10, 0.1, 0.5), 0.3)
+  .out()"""
+            elif modo_visual == "Túnel Hipocentral (Vórtice)":
+                hydra_patch = f"""// Patch Vórtice Wadati-Benioff - Prof {sismo_vj['profundidad_km']}km
+shape({max(3, int(sismo_vj['magnitud']))}, 0.5, 0.01)
+  .scale(() => 1 + Math.sin(time * {base_speed:.2f}) * 0.4)
+  .repeat({int(base_depth + 4)}, {int(base_depth + 4)})
+  .rotate(0.2, 0.1)
+  .modulate(osc(8, 0.05))
+  .out()"""
+            else:
+                hydra_patch = f"""// Patch Glitch Sismológico - Máquina Tierna
+osc(40, {base_speed:.2f}, 1.5)
+  .modulateScale(noise({base_fosa:.2f}), () => Math.sin(time * 3) * {dim_gain:.1f})
+  .pixelate(32, 32)
+  .color(1.0, 0.1, 0.6)
+  .out()"""
+                
+            st.code(hydra_patch, language="javascript")
+            st.markdown("#### 📡 Streaming OSC / Resolume / TouchDesigner")
+            st.code(f"/maquinatierna/sismo [float:{sismo_vj['magnitud']}], [float:{sismo_vj['profundidad_km']}], [float:{dim_gain}]", language="text")
+
     else:
         st.info("No hay datos disponibles para generar visuales con los filtros seleccionados.")
 
