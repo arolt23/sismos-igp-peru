@@ -89,14 +89,12 @@ def preparar_master_dataset():
         
         _, tnt = calcular_energia_joules(row["magnitud"])
         energias.append(round(tnt, 2))
-        
         radios.append(estimar_radio_percepcion_km(row["magnitud"], row["profundidad_km"]))
         alertas.append(clasificar_alerta_riesgo(row["magnitud"], dist, row["profundidad_km"]))
         
         d_fosa = calcular_distancia_fosa_km(row["latitud"], row["longitud"])
         dist_fosas.append(d_fosa)
         
-        # Sectorización Morfodinámica
         if row["profundidad_km"] <= 60 and d_fosa <= 220:
             regiones.append("Costa (Frente de Subducción)")
         elif row["profundidad_km"] <= 150:
@@ -174,6 +172,7 @@ colores_hex = {
     "Profundo (>300 km)": "#2A9D8F"
 }
 
+# ==================== PESTAÑAS ====================
 tab_vj, tab_mapas, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab_secuencias, tab_gutenberg, tab_qgis = st.tabs([
     "🎛️ VJ Multi-Región & Hydra Core",
     "🗺️ Visor Cartográfico",
@@ -186,42 +185,57 @@ tab_vj, tab_mapas, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab
     "📐 QGIS / GeoJSON"
 ])
 
-# ==================== TAB VJ: MULTI-REGIÓN & FAST CLIENT DIMMERS ====================
+# --- TAB VJ: SÍNTESIS REACTIVA COMPLETA ---
 with tab_vj:
-    st.subheader("🎛️ Matriz Visual Sísmica: Síntesis Multi-Región a 60 FPS")
-    st.markdown("Ajusta los dimmers en tiempo real (renderizado directo en GPU/Canvas sin recargar la app) y copia los parches de Hydra específicos por cada contexto tectónico regional.")
+    st.subheader("🎛️ Consola VJ por Departamento, Categoría y Geometría")
+    st.markdown("Filtra los eventos sísmicos por **Departamento** y **Categoría**, personaliza la **Paleta de Color** y **Forma Geométrica**, y copia el código de Hydra generado.")
+    
+    # 1. Filtros de entrada VJ
+    v_col1, v_col2, v_col3, v_col4 = st.columns(4)
+    with v_col1:
+        vj_dep = st.selectbox("📍 Departamento VJ:", options=["Todos los Departamentos"] + deps_list)
+    with v_col2:
+        categorias_prof = ["Todas las Categorías", "Superficial (0-60 km)", "Intermedio (61-300 km)", "Profundo (>300 km)", "Eventos Destructivos / Históricos"]
+        vj_cat = st.selectbox("⚡ Categoría Sísmica:", options=categorias_prof)
+    with v_col3:
+        paleta_sel = st.selectbox("🎨 Paleta de Color:", ["Neón Cyberpunk", "Lava Tectónica", "Océano Abisal", "Glitch Monocromático", "Matriz Sintética (Verde)"])
+    with v_col4:
+        forma_sel = st.selectbox("📐 Geometría / Forma:", ["Ondas Concéntricas", "Hexágonos & Polígonos", "Malla de Fractura (Grid)", "Vórtice Espiral"])
 
-    # Agrupar el sismo más representativo de cada región
-    regiones_disponibles = ["Costa (Frente de Subducción)", "Sierra (Fallas Corticales)", "Selva / Manto Profundo"]
-    sismos_regionales = {}
-    for reg in regiones_disponibles:
-        sub = df_filtrado[df_filtrado["region_tectonica"] == reg]
-        if not sub.empty:
-            sismos_regionales[reg] = sub.iloc[0].to_dict()
-        else:
-            sub_global = df_master[df_master["region_tectonica"] == reg]
-            sismos_regionales[reg] = sub_global.iloc[0].to_dict() if not sub_global.empty else df_master.iloc[0].to_dict()
+    # Filtrar datos según las opciones de la consola VJ
+    df_vj_pool = df_master.copy()
+    if vj_dep != "Todos los Departamentos":
+        df_vj_pool = df_vj_pool[df_vj_pool["departamento"] == vj_dep]
+    
+    if vj_cat == "Eventos Destructivos / Históricos":
+        df_vj_pool = df_vj_pool[df_vj_pool["impacto"] != "Monitoreo Instrumental"]
+    elif vj_cat != "Todas las Categorías":
+        df_vj_pool = df_vj_pool[df_vj_pool["tipo_profundidad"] == vj_cat]
 
-    s_costa = sismos_regionales["Costa (Frente de Subducción)"]
-    s_sierra = sismos_regionales["Sierra (Fallas Corticales)"]
-    s_selva = sismos_regionales["Selva / Manto Profundo"]
+    if df_vj_pool.empty:
+        st.warning(f"No hay registros sísmicos para {vj_dep} en la categoría '{vj_cat}'. Usando datos de referencia nacional.")
+        sismo_vj = df_master.iloc[0].to_dict()
+    else:
+        sismo_vj = df_vj_pool.iloc[0].to_dict()
 
-    # Componente integrado de Ultra-Baja Latencia con Dimmers en JS
-    vj_multicanal_html = f"""
+    st.caption(f"🎯 **Sismo Modulador Activo:** {sismo_vj['referencia']} | **Magnitud:** {sismo_vj['magnitud']} M | **Profundidad:** {sismo_vj['profundidad_km']} km | **Departamento:** {sismo_vj['departamento']}")
+
+    # Mapeo de paleta de colores para Canvas y Hydra
+    paletas_config = {
+        "Neón Cyberpunk": {"hue_start": 280, "hue_range": 100, "hydra_color": "0.9, 0.1, 0.7"},
+        "Lava Tectónica": {"hue_start": 0, "hue_range": 50, "hydra_color": "1.0, 0.2, 0.05"},
+        "Océano Abisal": {"hue_start": 180, "hue_range": 80, "hydra_color": "0.05, 0.6, 0.95"},
+        "Glitch Monocromático": {"hue_start": 0, "hue_range": 0, "hydra_color": "0.8, 0.8, 0.8"},
+        "Matriz Sintética (Verde)": {"hue_start": 100, "hue_range": 50, "hydra_color": "0.1, 0.9, 0.2"}
+    }
+    p_cfg = paletas_config[paleta_sel]
+
+    # Componente Canvas ultra-rápido en JavaScript
+    vj_interactive_html = f"""
     <div style="background: #0d0b14; padding: 15px; border-radius: 10px; border: 1px solid #7209b7; color: white; font-family: sans-serif;">
-        <!-- CONTROLES NATIVOS EN JS (SIN RECARGAS DE STREAMLIT) -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; background: #181528; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; background: #181528; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
             <div>
-                <label style="font-size: 11px; color: #f72585; font-weight: bold;">CANAL REGIONAL:</label><br>
-                <select id="channelSelect" style="width: 100%; background: #0a0812; color: #4cc9f0; border: 1px solid #7209b7; border-radius: 4px; padding: 4px; margin-top: 4px;">
-                    <option value="costa">🌊 Costa (Subducción Nazca) - M {s_costa['magnitud']}</option>
-                    <option value="sierra">⛰️ Sierra (Fallas Activas) - M {s_sierra['magnitud']}</option>
-                    <option value="selva">🌴 Selva (Manto Profundo) - M {s_selva['magnitud']}</option>
-                    <option value="triptico">⚡ Tríptico Multi-Canal (Simultáneo)</option>
-                </select>
-            </div>
-            <div>
-                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">GANANCIA SÍSMICA (GAIN): <span id="val_gain">1.0</span>x</label>
+                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">GANANCIA SÍSMICA: <span id="val_gain">1.0</span>x</label>
                 <input type="range" id="dim_gain" min="0.2" max="3.0" step="0.1" value="1.0" style="width: 100%;">
             </div>
             <div>
@@ -229,181 +243,194 @@ with tab_vj:
                 <input type="range" id="dim_speed" min="0.1" max="4.0" step="0.1" value="1.0" style="width: 100%;">
             </div>
             <div>
-                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">RETROALIMENTACIÓN (TRAIL): <span id="val_trail">0.15</span></label>
+                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">RETROALIMENTACIÓN: <span id="val_trail">0.15</span></label>
                 <input type="range" id="dim_trail" min="0.01" max="0.45" step="0.01" value="0.15" style="width: 100%;">
             </div>
             <div>
                 <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">RUIDO TECTÓNICO: <span id="val_noise">15</span></label>
-                <input type="range" id="dim_noise" min="0" max="40" step="1" value="15" style="width: 100%;">
+                <input type="range" id="dim_noise" min="0" max="50" step="1" value="15" style="width: 100%;">
             </div>
         </div>
 
-        <canvas id="vjMaster" width="960" height="420" style="width: 100%; border-radius: 6px; background: #000; display: block;"></canvas>
+        <canvas id="vjCanvas" width="960" height="420" style="width: 100%; border-radius: 6px; background: #000; display: block;"></canvas>
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-            <span id="telemetry" style="font-family: monospace; font-size: 12px; color: #aaa;">Telemetría activa: Costa (M {s_costa['magnitud']} | Prof {s_costa['profundidad_km']}km)</span>
-            <button onclick="downloadCapture()" style="background: #f72585; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Guardar Captura PNG</button>
+            <span style="font-family: monospace; font-size: 12px; color: #aaa;">
+                Paleta: <b>{paleta_sel}</b> | Forma: <b>{forma_sel}</b> | Sismo: <b>{sismo_vj['departamento']} (M {sismo_vj['magnitud']})</b>
+            </span>
+            <button onclick="downloadCapture()" style="background: #f72585; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Descargar Captura (.PNG)</button>
         </div>
     </div>
 
     <script>
-        const canvas = document.getElementById('vjMaster');
+        const canvas = document.getElementById('vjCanvas');
         const ctx = canvas.getContext('2d');
+
+        const mag = {sismo_vj['magnitud']};
+        const prof = {sismo_vj['profundidad_km']};
+        const distFosa = {sismo_vj['distancia_fosa_km']};
         
-        // Datos por región inyectados
-        const datasets = {{
-            costa: {{ mag: {s_costa['magnitud']}, prof: {s_costa['profundidad_km']}, ref: "{s_costa['referencia']}", fosa: {s_costa['distancia_fosa_km']} }},
-            sierra: {{ mag: {s_sierra['magnitud']}, prof: {s_sierra['profundidad_km']}, ref: "{s_sierra['referencia']}", fosa: {s_sierra['distancia_fosa_km']} }},
-            selva: {{ mag: {s_selva['magnitud']}, prof: {s_selva['profundidad_km']}, ref: "{s_selva['referencia']}", fosa: {s_selva['distancia_fosa_km']} }}
-        }};
+        const forma = "{forma_sel}";
+        const paleta = "{paleta_sel}";
+        const hueStart = {p_cfg['hue_start']};
+        const hueRange = {p_cfg['hue_range']};
 
         let t = 0;
-        const sel = document.getElementById('channelSelect');
         const dGain = document.getElementById('dim_gain');
         const dSpeed = document.getElementById('dim_speed');
         const dTrail = document.getElementById('dim_trail');
         const dNoise = document.getElementById('dim_noise');
 
-        // Actualización numérica de labels instantánea
         dGain.oninput = () => document.getElementById('val_gain').innerText = dGain.value;
         dSpeed.oninput = () => document.getElementById('val_speed').innerText = dSpeed.value;
         dTrail.oninput = () => document.getElementById('val_trail').innerText = dTrail.value;
         dNoise.oninput = () => document.getElementById('val_noise').innerText = dNoise.value;
 
-        function renderSubVisual(cx, cy, w, h, data, modeName) {{
-            const freq = data.mag * 3.2 * parseFloat(dGain.value);
-            const depth = data.prof / 20.0;
+        function draw() {{
+            const speed = parseFloat(dSpeed.value);
+            const gain = parseFloat(dGain.value);
+            const trail = parseFloat(dTrail.value);
             const noise = parseFloat(dNoise.value);
 
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(cx - w/2, cy - h/2, w, h);
-            ctx.clip();
+            t += 0.02 * speed;
+            ctx.fillStyle = `rgba(5, 3, 10, ${{trail}})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            if (modeName === 'costa') {{
-                // Ondas concéntricas de subducción marina
-                const rings = 8 + Math.floor(freq);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const freq = mag * 3.2 * gain;
+            const depthMod = prof / 20.0;
+
+            if (forma === "Ondas Concéntricas") {{
+                const rings = 10 + Math.floor(freq);
                 for (let i = 0; i < rings; i++) {{
                     ctx.beginPath();
-                    const rBase = (i * 18 + (t * 50) % 200);
+                    const rBase = (i * 20 + (t * 50) % 250);
                     for (let a = 0; a < Math.PI * 2; a += 0.15) {{
-                        const wave = Math.sin(a * freq + t) * depth + Math.cos(a * 4 - t) * (noise * 0.5);
+                        const wave = Math.sin(a * freq + t) * depthMod + Math.cos(a * 4 - t) * (noise * 0.5);
                         const r = rBase + wave;
                         const x = cx + Math.cos(a) * r;
                         const y = cy + Math.sin(a) * r;
                         if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
                     }}
                     ctx.closePath();
-                    ctx.strokeStyle = `hsl(${{(i * 20 + t * 40) % 360}}, 90%, 65%)`;
+                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? `rgba(255,255,255,${{0.4 + (i % 2)*0.5}})` : `hsl(${{(hueStart + (i * 15 + t * 40)) % 360}}, 90%, 60%)`;
                     ctx.lineWidth = 1.8;
                     ctx.stroke();
                 }}
-            }} else if (modeName === 'sierra') {{
-                // Malla de fallas corticales y picos escarpados
-                const lines = 12;
+            }} 
+            else if (forma === "Hexágonos & Polígonos") {{
+                const layers = 8;
+                for (let i = 0; i < layers; i++) {{
+                    ctx.beginPath();
+                    const sides = Math.max(3, Math.floor(mag));
+                    const rBase = (i * 30 + (t * 40) % 220);
+                    const rot = t * (i % 2 === 0 ? 1 : -1) * 0.5;
+                    for (let j = 0; j <= sides; j++) {{
+                        const a = (j / sides) * Math.PI * 2 + rot;
+                        const wave = Math.sin(j * 2 + t) * depthMod + (Math.random() - 0.5) * noise * 0.2;
+                        const r = rBase + wave;
+                        const x = cx + Math.cos(a) * r;
+                        const y = cy + Math.sin(a) * r;
+                        if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    }}
+                    ctx.closePath();
+                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? "#fff" : `hsl(${{(hueStart + i * 25) % 360}}, 95%, 55%)`;
+                    ctx.lineWidth = 2.2;
+                    ctx.stroke();
+                }}
+            }}
+            else if (forma === "Malla de Fractura (Grid)") {{
+                const lines = 16;
                 for (let i = 0; i < lines; i++) {{
                     ctx.beginPath();
-                    const yPos = cy - h/2 + (i * (h / lines));
-                    for (let x = cx - w/2; x < cx + w/2; x += 10) {{
-                        const yOffset = Math.sin(x * 0.03 * freq + t) * (depth * 2) + (Math.random() - 0.5) * noise;
-                        if (x === cx - w/2) ctx.moveTo(x, yPos + yOffset);
+                    const yPos = (i * (canvas.height / lines));
+                    for (let x = 0; x < canvas.width; x += 15) {{
+                        const yOffset = Math.sin(x * 0.03 * freq + t) * (depthMod * 3) + (Math.random() - 0.5) * noise;
+                        if (x === 0) ctx.moveTo(x, yPos + yOffset);
                         else ctx.lineTo(x, yPos + yOffset);
                     }}
-                    ctx.strokeStyle = `hsl(${{(i * 30 + 120) % 360}}, 85%, 60%)`;
+                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? `rgba(240,240,240,0.7)` : `hsl(${{(hueStart + i * 20) % 360}}, 85%, 60%)`;
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
                 }}
-            }} else {{
-                // Vórtice profundo del manto
-                const spirals = 10;
+            }}
+            else if (forma === "Vórtice Espiral") {{
+                const spirals = 12;
                 for (let i = 0; i < spirals; i++) {{
                     ctx.beginPath();
-                    const rad = Math.pow(i / spirals, 1.6) * (w * 0.45);
-                    const rot = t * (i % 2 === 0 ? 1 : -1) * 0.7;
+                    const rad = Math.pow(i / spirals, 1.6) * (canvas.width * 0.45);
+                    const rot = t * (i % 2 === 0 ? 1 : -1) * 0.8;
                     for (let a = 0; a < Math.PI * 2; a += 0.2) {{
                         const x = cx + Math.cos(a + rot) * (rad + Math.sin(a * 5 + t) * noise);
-                        const y = cy + Math.sin(a + rot) * (rad + Math.cos(a * 5 - t) * depth);
+                        const y = cy + Math.sin(a + rot) * (rad + Math.cos(a * 5 - t) * depthMod);
                         if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
                     }}
                     ctx.closePath();
-                    ctx.strokeStyle = `hsl(${{(i * 25 + t * 60 + 200) % 360}}, 95%, 55%)`;
+                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? `hsl(0, 0%, ${{50 + i * 4}}%)` : `hsl(${{(hueStart + i * 30 + t * 50) % 360}}, 100%, 60%)`;
                     ctx.lineWidth = 2;
                     ctx.stroke();
                 }}
             }}
-            ctx.restore();
+
+            requestAnimationFrame(draw);
         }}
-
-        function loop() {{
-            const spd = parseFloat(dSpeed.value);
-            t += 0.02 * spd;
-            
-            ctx.fillStyle = `rgba(5, 3, 10, ${{parseFloat(dTrail.value)}})`;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            const mode = sel.value;
-            const telem = document.getElementById('telemetry');
-
-            if (mode === 'triptico') {{
-                const w3 = canvas.width / 3;
-                renderSubVisual(w3 * 0.5, canvas.height/2, w3 - 10, canvas.height, datasets.costa, 'costa');
-                renderSubVisual(w3 * 1.5, canvas.height/2, w3 - 10, canvas.height, datasets.sierra, 'sierra');
-                renderSubVisual(w3 * 2.5, canvas.height/2, w3 - 10, canvas.height, datasets.selva, 'selva');
-                telem.innerText = `Tríptico Simultáneo: Costa (M${{datasets.costa.mag}}) | Sierra (M${{datasets.sierra.mag}}) | Selva (M${{datasets.selva.mag}})`;
-            }} else {{
-                renderSubVisual(canvas.width/2, canvas.height/2, canvas.width, canvas.height, datasets[mode], mode);
-                telem.innerText = `Canal Activo: ${{mode.toUpperCase()}} (${{datasets[mode].ref}} | M ${{datasets[mode].mag}} | Prof ${{datasets[mode].prof}} km)`;
-            }}
-
-            requestAnimationFrame(loop);
-        }}
-        loop();
+        draw();
 
         function downloadCapture() {{
             const link = document.createElement('a');
-            link.download = `vj_sismos_peru_${{Date.now()}}.png`;
+            link.download = `sismo_${{paleta.replace(/\\s+/g, '_')}}_${{Date.now()}}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
         }}
     </script>
     """
-    components.html(vj_multicanal_html, height=550)
+    components.html(vj_interactive_html, height=560)
 
-    # CÓDIGO HYDRA DIFERENCIADO POR REGIÓN
-    st.markdown("### 🔮 Patches de Hydra Synth por Dominio Tectónico")
-    st.caption("Copia estos parches directamente en [hydra.ojack.xyz](https://hydra.ojack.xyz):")
+    # Generador Dinámico de Shaders Hydra
+    st.markdown("### 🔮 Código de Hydra Synth Sincronizado en Vivo")
+    st.caption("Pega este parche en [hydra.ojack.xyz](https://hydra.ojack.xyz). Se recompila según el Departamento, Categoría, Color y Forma seleccionados:")
     
-    col_h1, col_h2, col_h3 = st.columns(3)
-    
-    with col_h1:
-        st.markdown(f"**🌊 Costa (Subducción Nazca)**\n\n*Ref: {s_costa['referencia']} (M {s_costa['magnitud']})*")
-        st.code(f"""// 1. Costa: Frecuencia de Ondas Marinas
-osc({float(s_costa['magnitud'])*3.5:.1f}, 0.2, {float(s_costa['profundidad_km'])/20.0:.2f})
-  .modulate(noise({float(s_costa['distancia_fosa_km'])/40.0:.2f}), () => Math.sin(time)*0.4)
-  .color(0.1, 0.6, 0.9)
-  .kaleid({max(3, int(s_costa['magnitud']))})
+    hydra_color = p_cfg["hydra_color"]
+    hydra_sides = max(3, int(sismo_vj["magnitud"]))
+    hydra_freq = float(sismo_vj["magnitud"]) * 3.5
+    hydra_depth = float(sismo_vj["profundidad_km"]) / 20.0
+
+    if forma_sel == "Ondas Concéntricas":
+        hydra_code_dyn = f"""// Patch Ondas: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
+osc({hydra_freq:.1f}, 0.2, {hydra_depth:.2f})
+  .modulate(noise({float(sismo_vj['distancia_fosa_km'])/40.0:.2f}), () => Math.sin(time)*0.5)
+  .color({hydra_color})
+  .kaleid({hydra_sides})
   .rotate(0.1, 0.05)
-  .out(o0)""", language="javascript")
-
-    with col_h2:
-        st.markdown(f"**⛰️ Sierra (Fallas Corticales)**\n\n*Ref: {s_sierra['referencia']} (M {s_sierra['magnitud']})*")
-        st.code(f"""// 2. Sierra: Malla Geológica Voronoi
-voronoi({float(s_sierra['magnitud'])*4.0:.1f}, 0.3, 1.5)
-  .color(0.9, 0.3, 0.1)
-  .modulatePixelate(noise({float(s_sierra['profundidad_km'])/10.0:.2f}), 16)
-  .add(osc(12, 0.1, 0.8), 0.3)
-  .out(o1)""", language="javascript")
-
-    with col_h3:
-        st.markdown(f"**🌴 Selva (Manto Profundo)**\n\n*Ref: {s_selva['referencia']} (M {s_selva['magnitud']})*")
-        st.code(f"""// 3. Selva: Vórtice de Hipocentro Profundo
-shape({max(3, int(s_selva['magnitud']))}, 0.6, 0.01)
-  .scale(() => 1 + Math.sin(time*0.5)*0.3)
-  .repeat({int(s_selva['profundidad_km']/40 + 3)}, {int(s_selva['profundidad_km']/40 + 3)})
+  .out(o0)"""
+    elif forma_sel == "Hexágonos & Polígonos":
+        hydra_code_dyn = f"""// Patch Poligonal: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
+shape({hydra_sides}, 0.5, 0.02)
+  .scale(() => 1 + Math.sin(time*0.8)*0.4)
+  .repeat({int(hydra_depth + 3)}, {int(hydra_depth + 3)})
   .rotate(0.2, 0.1)
-  .modulate(osc(6, 0.05))
-  .color(0.8, 0.1, 0.9)
-  .out(o2)""", language="javascript")
+  .color({hydra_color})
+  .modulatePixelate(voronoi({hydra_freq:.1f}, 0.5), 12)
+  .out(o0)"""
+    elif forma_sel == "Malla de Fractura (Grid)":
+        hydra_code_dyn = f"""// Patch Grid Cortical: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
+voronoi({hydra_freq:.1f}, 0.3, 1.5)
+  .color({hydra_color})
+  .modulatePixelate(noise({hydra_depth:.2f}), 24)
+  .add(osc(20, 0.1, 0.5), 0.4)
+  .out(o0)"""
+    else:
+        hydra_code_dyn = f"""// Patch Vórtice Profundo: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
+shape({hydra_sides}, 0.6, 0.01)
+  .scale(() => 1 + Math.sin(time*0.5)*0.3)
+  .repeat({int(hydra_depth + 4)}, {int(hydra_depth + 4)})
+  .rotate(0.3, 0.15)
+  .modulate(osc(8, 0.05))
+  .color({hydra_color})
+  .out(o0)"""
+
+    st.code(hydra_code_dyn, language="javascript")
 
 # --- TAB MAPAS 2D / 3D ---
 with tab_mapas:
