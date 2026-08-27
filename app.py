@@ -6,6 +6,7 @@ from streamlit_folium import st_folium
 from folium.plugins import HeatMap, MarkerCluster
 import plotly.express as px
 import json
+import streamlit.components.v1 as components
 from geopy.distance import geodesic
 
 from scraper import obtener_sismos_en_vivo
@@ -20,13 +21,27 @@ from analysis import (
 from tectonics import FOSA_PERU_CHILE, calcular_distancia_fosa_km, identificar_secuencias_sismicas
 from geology import FALLAS_ACTIVAS_PERU
 
-st.set_page_config(page_title="Plataforma Sismotectónica del Perú - IGP", layout="wide")
+st.set_page_config(page_title="Monitor Sísmico & VJ Core - Máquina Tierna", layout="wide")
 
-# Corrección de renderizado de Folium y estilos de tarjetas
+# Estilos e interfaz
 st.markdown("""
 <style>
     iframe { width: 100% !important; border-radius: 8px; }
-    .stMetric { background-color: #1a1c24; padding: 12px; border-radius: 8px; border: 1px solid #333; }
+    .stMetric { background-color: #161922; padding: 12px; border-radius: 8px; border: 1px solid #2a2e3d; }
+    .credit-box {
+        background: linear-gradient(135deg, #1f1235, #0f0c1b);
+        border: 1px solid #7209b7;
+        padding: 15px;
+        border-radius: 10px;
+        color: #f72585;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .credit-box a {
+        color: #4cc9f0;
+        text-decoration: none;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -107,18 +122,28 @@ def preparar_master_dataset():
 
 df_master = preparar_master_dataset()
 
+# ==================== CRÉDITOS Y BRANDING ====================
+st.sidebar.markdown("""
+<div class="credit-box">
+    <h3 style="margin:0; font-size: 1.1rem; color: #fff;">⚡ MÁQUINA TIERNA</h3>
+    <p style="margin: 4px 0 10px 0; font-size: 0.85rem; color: #bbb;">Desarrollado por <b>Arolt</b></p>
+    <a href="https://instagram.com/maquinatierna" target="_blank">📷 @maquinatierna</a> &nbsp;|&nbsp;
+    <a href="https://instagram.com/arolt23" target="_blank">👤 @arolt23</a>
+</div>
+""", unsafe_allow_html=True)
+
 # Banner de evento reciente
 ultimos_eventos = df_master[df_master["fuente"] == "IGP (Tiempo Real)"]
 if not ultimos_eventos.empty:
     ultimo = ultimos_eventos.iloc[0]
     if ultimo["magnitud"] >= 4.5:
         st.error(
-            f"🔔 **ÚLTIMO REPORTE SÍSMICO (IGP):** Magnitud {ultimo['magnitud']} M en {ultimo['referencia']} "
+            f"🔔 **ÚLTIMO REPORTE SÍSMICO:** Magnitud {ultimo['magnitud']} M en {ultimo['referencia']} "
             f"| Profundidad: {ultimo['profundidad_km']} km | {ultimo['nivel_riesgo']}"
         )
 
-st.title("🇵🇪 Sistema Integral de Geofísica Sísmica del Perú")
-st.caption("Procesamiento de datos en tiempo real (IGP), registros históricos (USGS) y estructuras tectónicas (INGEMMET).")
+st.title("🇵🇪 Plataforma Sismotectónica & Live Visuals - IGP")
+st.caption("Desarrollado por Arolt para **Máquina Tierna** | Análisis territorial, geofísica e interpretación generativa.")
 
 # ==================== FILTROS LATERALES ====================
 st.sidebar.header("📍 Filtros Territoriales")
@@ -132,7 +157,7 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚡ Filtros Físicos y Temporales")
 mag_rango = st.sidebar.slider("Rango de Magnitud (M)", 3.5, 8.5, (4.0, 8.5), step=0.1)
 prof_rango = st.sidebar.slider("Rango de Profundidad (km)", 0, 700, (0, 700), step=10)
-rango_anios = st.sidebar.slider("Periodo Histórico (Años)", int(df_master["anio"].min()), int(df_master["anio"].max()), (1970, 2026))
+rango_anios = st.sidebar.slider("Periodo (Años)", int(df_master["anio"].min()), int(df_master["anio"].max()), (1970, 2026))
 
 df_filtrado = df_master[
     (df_master["departamento"].isin(dep_sel)) &
@@ -147,11 +172,11 @@ df_filtrado = df_master[
 
 # KPIs Superiores
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Sismos Filtrados", len(df_filtrado), help="Cantidad total de eventos visibles.")
-k2.metric("Sismo Mayor", f"{df_filtrado['magnitud'].max() if not df_filtrado.empty else 0} M", help="Mayor magnitud en el conjunto seleccionado.")
+k1.metric("Sismos Visibles", len(df_filtrado))
+k2.metric("Sismo Mayor", f"{df_filtrado['magnitud'].max() if not df_filtrado.empty else 0} M")
 criticos = len(df_filtrado[df_filtrado["nivel_riesgo"].str.contains("CRÍTICA|ROJA")])
-k3.metric("Alertas Severas/Críticas", criticos, help="Eventos de alta energía próximos a poblaciones.")
-k4.metric("Energía Acumulada", f"{df_filtrado['energia_tnt_ton'].sum():,.0f} Ton TNT" if not df_filtrado.empty else "0", help="Equivalente en TNT de la energía elástica liberada.")
+k3.metric("Alertas Severas/Críticas", criticos)
+k4.metric("Energía Acumulada", f"{df_filtrado['energia_tnt_ton'].sum():,.0f} Ton TNT" if not df_filtrado.empty else "0")
 
 st.markdown("---")
 
@@ -162,8 +187,9 @@ colores_hex = {
 }
 
 # ==================== PESTAÑAS ====================
-tab_mapas, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab_secuencias, tab_gutenberg, tab_qgis = st.tabs([
+tab_mapas, tab_vj, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab_secuencias, tab_gutenberg, tab_qgis = st.tabs([
     "🗺️ Visor Cartográfico",
+    "🎛️ VJ Live Visuals (Hydra / Shaders)",
     "⏳ Línea de Tiempo",
     "🏙️ Proximidad Urbana",
     "🌊 Subducción (Wadati-Benioff)",
@@ -181,14 +207,14 @@ with tab_mapas:
         st.markdown("### 📖 Leyenda del Mapa")
         st.markdown("""
         **Profundidad del Hipocentro:**
-        * 🔴 **Superficial (0-60 km):** Mayor daño en superficie.
+        * 🔴 **Superficial (0-60 km):** Mayor impacto superficial.
         * 🟠 **Intermedio (61-300 km):** Placa en subducción.
         * 🔵 **Profundo (>300 km):** Manto terrestre profundo.
         
         **Estructuras Geológicas:**
         * 🟦 **Línea Azul:** Fosa marina Perú-Chile.
-        * 🟪 **Línea Púrpura Discontinua:** Fallas continentales activas (INGEMMET).
-        * 🟢 **Marcadores Verdes:** Capitales / Zonas urbanas.
+        * 🟪 **Línea Púrpura:** Fallas activas (INGEMMET).
+        * 🟢 **Marcadores Verdes:** Zonas urbanas clave.
         """)
         modo = st.radio("Capa Cartográfica:", ["2D (Puntos y Fallas)", "2D (Clusters Agrupados)", "2D (Mapa de Calor)", "🌐 3D (Relieve y Profundidad)"])
 
@@ -196,12 +222,10 @@ with tab_mapas:
         if "2D" in modo:
             m = folium.Map(location=[-9.19, -75.01], zoom_start=5, tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr="&copy; OpenStreetMap")
             
-            # Fosa y Fallas
             folium.PolyLine(FOSA_PERU_CHILE, color="#1D3557", weight=3.5, tooltip="Fosa Perú-Chile").add_to(m)
             for f in FALLAS_ACTIVAS_PERU:
                 folium.PolyLine(f["coords"], color="#7209B7", weight=3, dash_array="6, 6", tooltip=f"Falla {f['nombre']}").add_to(m)
             
-            # Ciudades
             for dep, d_info in UBICACIONES_PERU.items():
                 folium.Marker(location=d_info["coords"], tooltip=f"Zona Urbana: {dep}", icon=folium.Icon(color="green", icon="info-sign")).add_to(m)
 
@@ -231,7 +255,7 @@ with tab_mapas:
                 
             st_folium(m, width=None, height=520, returned_objects=[])
         else:
-            st.caption("Usa **Ctrl + Clic izquierdo** (o clic derecho) para inclinar la vista tridimensional y evaluar la columna de profundidad.")
+            st.caption("Usa **Ctrl + Clic izquierdo** para inclinar la vista tridimensional.")
             df_filtrado["deck_color"] = df_filtrado["tipo_profundidad"].apply(
                 lambda t: [230, 57, 70, 180] if "Superficial" in t else ([244, 162, 97, 180] if "Intermedio" in t else [42, 157, 143, 180])
             )
@@ -246,16 +270,112 @@ with tab_mapas:
                 tooltip={"html": "<b>{referencia}</b><br/>M: {magnitud} | Profundidad: {profundidad_km} km"}
             ))
 
-# --- TAB 2: LÍNEA DE TIEMPO HISTÓRICA ---
+# --- TAB 2: VJ LIVE VISUALS & HYDRA SYNTH ---
+with tab_vj:
+    st.subheader("🎛️ Generador Audiovisual Reactivo a Datos Sísmicos (VJ Core)")
+    st.markdown("""
+    Este módulo convierte los sismos en señales de modulación visual. 
+    Selecciona un evento para generar texturas generativas en **Canvas/WebGL** o exportar el código en vivo para **Hydra Synth** y protocolos **OSC / MIDI**.
+    """)
+    
+    if not df_filtrado.empty:
+        opciones_sismos = [f"{r['fecha_hora']} | M {r['magnitud']} - {r['referencia']}" for _, r in df_filtrado.head(30).iterrows()]
+        sismo_sel_str = st.selectbox("Seleccionar Sismo Modulador:", opciones_sismos)
+        idx_sel = opciones_sismos.index(sismo_sel_str)
+        sismo_vj = df_filtrado.iloc[idx_sel]
+        
+        # Variables normalizadas para síntesis visual
+        v_freq = float(sismo_vj["magnitud"]) * 4.0
+        v_speed = max(0.1, round(float(sismo_vj["magnitud"]) / 3.0, 2))
+        v_depth_mod = round(float(sismo_vj["profundidad_km"]) / 30.0, 2)
+        v_dist_mod = round(float(sismo_vj["distancia_fosa_km"]) / 50.0, 2)
+        
+        col_v1, col_v2 = st.columns([1.5, 1])
+        
+        with col_v1:
+            st.markdown("#### 📺 Visualizador Reactivo en Vivo (WebGL / Canvas)")
+            
+            # Sintetizador visual embebido interactivo
+            canvas_html = f"""
+            <div style="text-align: center; background: #000; border-radius: 10px; padding: 10px;">
+                <canvas id="vjCanvas" width="600" height="380" style="border: 1px solid #7209b7; width: 100%; border-radius: 8px;"></canvas>
+            </div>
+            <script>
+                const canvas = document.getElementById('vjCanvas');
+                const ctx = canvas.getContext('2d');
+                let t = 0;
+                
+                const freq = {v_freq};
+                const speed = {v_speed};
+                const depth = {v_depth_mod};
+                const distFosa = {v_dist_mod};
+                
+                function draw() {{
+                    t += 0.03 * speed;
+                    ctx.fillStyle = 'rgba(10, 5, 20, 0.15)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    const cx = canvas.width / 2;
+                    const cy = canvas.height / 2;
+                    const rings = 12 + Math.floor(freq);
+                    
+                    for (let i = 0; i < rings; i++) {{
+                        ctx.beginPath();
+                        const radius = (i * 18 + (t * 40) % 250);
+                        const angleStep = (Math.PI * 2) / 36;
+                        
+                        for (let a = 0; a < Math.PI * 2; a += angleStep) {{
+                            const wave = Math.sin(a * freq + t) * (depth * 4) + Math.cos(a * 3 - t) * distFosa;
+                            const r = radius + wave;
+                            const x = cx + Math.cos(a) * r;
+                            const y = cy + Math.sin(a) * r;
+                            
+                            if (a === 0) ctx.moveTo(x, y);
+                            else ctx.lineTo(x, y);
+                        }}
+                        
+                        ctx.closePath();
+                        ctx.strokeStyle = `hsl(${{(i * 25 + t * 50) % 360}}, 85%, 60%)`;
+                        ctx.lineWidth = 1.5 + (depth > 5 ? 2 : 0.5);
+                        ctx.stroke();
+                    }}
+                    requestAnimationFrame(draw);
+                }}
+                draw();
+            </script>
+            """
+            components.html(canvas_html, height=420)
+
+        with col_v2:
+            st.markdown("#### ⚡ Parámetros de Síntesis")
+            st.code(f"""
+// Señales moduladoras:
+MAGNITUD      -> Frecuencia Oscilación: {v_freq:.1f}
+PROFUNDIDAD   -> Deformación Ondulatoria: {v_depth_mod:.2f}
+DIST. A FOSA  -> Modulación de Radio: {v_dist_mod:.2f}
+VELOCIDAD     -> Ratio de Fase: {v_speed:.2f}
+            """, language="javascript")
+            
+            st.markdown("#### 🔮 Código para Hydra Synth")
+            st.caption("Pega este código directamente en [hydra.ojack.xyz](https://hydra.ojack.xyz):")
+            hydra_code = f"""// Live Patch - Máquina Tierna (Sismo M {sismo_vj['magnitud']} en {sismo_vj['referencia']})
+osc({v_freq:.1f}, {v_speed:.2f}, {v_depth_mod:.2f})
+  .modulate(noise({v_dist_mod:.2f}), () => Math.sin(time) * 0.5)
+  .color(0.9, 0.2, 0.8)
+  .kaleid({max(3, int(sismo_vj['magnitud']))})
+  .rotate(0.1, 0.05)
+  .modulatePixelate(voronoi({v_freq:.1f}, 0.5), 8)
+  .out()"""
+            st.code(hydra_code, language="javascript")
+            
+            st.markdown("#### 📡 Formato para OSC / Resolume / TouchDesigner")
+            st.code(f"/sismo/peru [float: {sismo_vj['magnitud']}], [float: {sismo_vj['profundidad_km']}], [float: {sismo_vj['distancia_fosa_km']}]", language="text")
+    else:
+        st.info("No hay datos disponibles para generar visuales con los filtros seleccionados.")
+
+# --- TAB 3: LÍNEA DE TIEMPO ---
 with tab_timeline:
     st.subheader("Evolución Temporal de la Sismicidad")
-    with st.expander("📚 ¿Qué observas en estos gráficos temporales?"):
-        st.markdown("""
-        * **Dispersión Temporal (Gráfica superior):** Cada círculo representa un sismo a lo largo de las décadas. La escala de color refleja la profundidad y el tamaño su magnitud.
-        * **Frecuencia Anual (Gráfica inferior izquierda):** Muestra los periodos con picos anormales de sismicidad por departamento.
-        * **Eventos Notables (Gráfica inferior derecha):** Resalta los terremotos más destructivos de la historia instrumental peruana.
-        """)
-    
     fig_time = px.scatter(
         df_filtrado, x="fecha_hora", y="magnitud", size="magnitud", color="tipo_profundidad",
         hover_data=["referencia", "departamento", "impacto"], color_discrete_map=colores_hex,
@@ -284,15 +404,9 @@ with tab_timeline:
         )
         st.plotly_chart(fig_dest, width="stretch")
 
-# --- TAB 3: PROXIMIDAD Y TERRITORIO ---
+# --- TAB 4: PROXIMIDAD Y TERRITORIO ---
 with tab_territorio:
-    st.subheader("Análisis Territorial y Cercanía a Centros Urbanos")
-    with st.expander("📚 Interpretación de la exposición urbana"):
-        st.markdown("""
-        * **Profundidad vs. Distancia Urbana:** Los sismos situados en el cuadrante inferior izquierdo (muy superficiales y a pocos kilómetros de una ciudad) representan el mayor riesgo de colapso estructural.
-        * **Dispersión por Departamento (Boxplot):** Identifica qué regiones concentran consistentemente los sismos de mayor intensidad media.
-        """)
-    
+    st.subheader("Análisis Territorial y Cercanía Urbana")
     col_u1, col_u2 = st.columns(2)
     with col_u1:
         fig_dist_prof = px.scatter(
@@ -312,15 +426,9 @@ with tab_territorio:
         )
         st.plotly_chart(fig_box, width="stretch")
 
-# --- TAB 4: SUBDUCCIÓN (PLANO DE WADATI-BENIOFF) ---
+# --- TAB 5: SUBDUCCIÓN ---
 with tab_tectonica:
-    st.subheader("Perfil de Subducción Cortical (Plano de Wadati-Benioff)")
-    with st.expander("📚 ¿Qué es el plano de Wadati-Benioff?"):
-        st.markdown("""
-        Esta gráfica muestra un corte transversal de la Tierra: el eje horizontal representa la distancia desde la fosa marina (océano) hacia el este (continente), y el eje vertical representa la profundidad invertida.
-        Permite observar la **geometría real de la Placa de Nazca hundiéndose por debajo del Perú**.
-        """)
-    
+    st.subheader("Perfil de Subducción (Plano de Wadati-Benioff)")
     fig_benioff = px.scatter(
         df_filtrado, x="distancia_fosa_km", y="profundidad_km", size="magnitud",
         color="tipo_profundidad", hover_data=["referencia", "departamento"],
@@ -331,22 +439,15 @@ with tab_tectonica:
     fig_benioff.update_yaxes(autorange="reversed")
     st.plotly_chart(fig_benioff, width="stretch")
 
-# --- TAB 5: FÍSICA Y ENERGÍA LIBERADA ---
+# --- TAB 6: FÍSICA Y ENERGÍA ---
 with tab_energia:
-    st.subheader("Física Sísmica y Energía Liberada (Gutenberg-Richter)")
-    with st.expander("📚 ¿Cómo se calcula la energía?"):
-        st.markdown(r"""
-        La energía sísmica no crece de forma lineal, sino logarítmica:
-        $$\log_{10} E = 4.8 + 1.5 M$$
-        Un aumento de 1 grado en magnitud ($M+1$) equivale a liberar aproximadamente **32 veces más energía**.
-        """)
-        
+    st.subheader("Física Sísmica y Energía Liberada")
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         top_energia = df_filtrado.sort_values(by="energia_tnt_ton", ascending=False).head(12)
         fig_en = px.bar(
             top_energia, x="energia_tnt_ton", y="referencia", orientation="h", color="departamento",
-            title="Top 12 Eventos con Mayor Energía (Equivalente en Toneladas de TNT)",
+            title="Top 12 Eventos con Mayor Energía (Toneladas de TNT)",
             labels={"energia_tnt_ton": "Toneladas de TNT", "referencia": "Evento"}
         )
         st.plotly_chart(fig_en, width="stretch")
@@ -361,14 +462,9 @@ with tab_energia:
         )
         st.plotly_chart(fig_rad, width="stretch")
 
-# --- TAB 6: ENJAMBRES Y RÉPLICAS ---
+# --- TAB 7: RÉPLICAS Y ENJAMBRES ---
 with tab_secuencias:
     st.subheader("Detección de Secuencias Sísmicas y Réplicas")
-    with st.expander("📚 Análisis de Réplicas (Ley de Omori)"):
-        st.markdown("""
-        Agrupa eventos que ocurren dentro de una ventana de 7 días y un radio de 100 km respecto a un sismo principal ($M \ge 5.5$). Permite monitorear la disipación de réplicas tras un terremoto.
-        """)
-    
     df_sec = df_filtrado[df_filtrado["id_secuencia"] != "None"]
     if not df_sec.empty:
         fig_sec = px.scatter(
@@ -382,17 +478,9 @@ with tab_secuencias:
     else:
         st.info("No se detectaron secuencias de sismo principal y réplicas con los filtros actuales.")
 
-# --- TAB 7: PELIGRO SÍSMICO (B-VALUE) ---
+# --- TAB 8: PELIGRO SÍSMICO (B-VALUE) ---
 with tab_gutenberg:
     st.subheader("Análisis de Esfuerzo Tectónico (b-value de Gutenberg-Richter)")
-    with st.expander("📚 ¿Cómo interpretar el valor 'b'?"):
-        st.markdown(r"""
-        La pendiente $b$ de la relación $\log_{10} N = a - b M$ estima el estado de esfuerzos de la corteza:
-        * **$b < 0.85$ (Crítico):** Alta acumulación de esfuerzo; la zona retiene energía y tiene mayor potencial para eventos de gran magnitud.
-        * **$0.85 \le b \le 1.05$ (Normal):** Régimen tectónico estable.
-        * **$b > 1.05$ (Bajo Esfuerzo):** Liberación continua mediante microsismicidad o enjambres.
-        """)
-        
     dep_analisis = st.selectbox("Seleccionar Departamento:", options=deps_list)
     df_dep = df_master[df_master["departamento"] == dep_analisis]
     b_val, diag = calcular_b_value_departamento(df_dep)
@@ -412,11 +500,9 @@ with tab_gutenberg:
         )
         st.plotly_chart(fig_gr, width="stretch")
 
-# --- TAB 8: QGIS ---
+# --- TAB 9: QGIS ---
 with tab_qgis:
     st.subheader("Exportación de Datos Geoespaciales")
-    st.markdown("Descarga la base vectorial completa en formato **GeoJSON** lista para abrirse en QGIS, ArcGIS o Google Earth.")
-    
     def exportar_geojson(df):
         features = []
         for _, r in df.iterrows():
@@ -443,3 +529,14 @@ with tab_qgis:
         file_name="sismos_peru_completo.geojson",
         mime="application/geo+json"
     )
+
+# Pie de página
+st.markdown("---")
+st.markdown(
+    "<div style='text-align: center; color: #888; font-size: 0.85rem;'>"
+    "Desarrollado por <b>Arolt</b> para <b>Máquina Tierna</b> | "
+    "<a href='https://instagram.com/maquinatierna' target='_blank' style='color:#7209b7;'>Instagram @maquinatierna</a> | "
+    "<a href='https://instagram.com/arolt23' target='_blank' style='color:#7209b7;'>Instagram @arolt23</a>"
+    "</div>",
+    unsafe_allow_html=True
+)
