@@ -174,7 +174,7 @@ colores_hex = {
 
 # ==================== PESTAÑAS ====================
 tab_vj, tab_mapas, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab_secuencias, tab_gutenberg, tab_qgis = st.tabs([
-    "🎛️ VJ Multi-Región & Hydra Core",
+    "🎛️ VJ Live Visuals Widescreen",
     "🗺️ Visor Cartográfico",
     "⏳ Línea de Tiempo",
     "🏙️ Proximidad Urbana",
@@ -185,254 +185,297 @@ tab_vj, tab_mapas, tab_timeline, tab_territorio, tab_tectonica, tab_energia, tab
     "📐 QGIS / GeoJSON"
 ])
 
-# --- TAB VJ: SÍNTESIS REACTIVA COMPLETA ---
+# ==================== TAB VJ: PANTALLA GIGANTE & MULTI-CANAL ====================
 with tab_vj:
-    st.subheader("🎛️ Consola VJ por Departamento, Categoría y Geometría")
-    st.markdown("Filtra los eventos sísmicos por **Departamento** y **Categoría**, personaliza la **Paleta de Color** y **Forma Geométrica**, y copia el código de Hydra generado.")
-    
-    # 1. Filtros de entrada VJ
-    v_col1, v_col2, v_col3, v_col4 = st.columns(4)
-    with v_col1:
-        vj_dep = st.selectbox("📍 Departamento VJ:", options=["Todos los Departamentos"] + deps_list)
-    with v_col2:
-        categorias_prof = ["Todas las Categorías", "Superficial (0-60 km)", "Intermedio (61-300 km)", "Profundo (>300 km)", "Eventos Destructivos / Históricos"]
-        vj_cat = st.selectbox("⚡ Categoría Sísmica:", options=categorias_prof)
-    with v_col3:
-        paleta_sel = st.selectbox("🎨 Paleta de Color:", ["Neón Cyberpunk", "Lava Tectónica", "Océano Abisal", "Glitch Monocromático", "Matriz Sintética (Verde)"])
-    with v_col4:
-        forma_sel = st.selectbox("📐 Geometría / Forma:", ["Ondas Concéntricas", "Hexágonos & Polígonos", "Malla de Fractura (Grid)", "Vórtice Espiral"])
+    st.subheader("🎛️ Consola VJ Widescreen: Generador Visual en Tiempo Real (Sin Latencia)")
+    st.markdown("Pantalla de proyección ultra-ancha con renderizado en GPU nativa (60 FPS), controles de modulación directa, visualización simultánea multi-canal y soporte de pantalla completa.")
 
-    # Filtrar datos según las opciones de la consola VJ
+    # 1. Filtros de entrada
+    f_c1, f_c2, f_c3, f_c4 = st.columns(4)
+    with f_c1:
+        vj_dep = st.selectbox("📍 Departamento Base:", options=["Todos los Departamentos"] + deps_list)
+    with f_c2:
+        vj_cat = st.selectbox("⚡ Categoría Sísmica:", options=["Todas las Categorías", "Superficial (0-60 km)", "Intermedio (61-300 km)", "Profundo (>300 km)", "Eventos Destructivos / Históricos"])
+    with f_c3:
+        paleta_sel = st.selectbox("🎨 Paleta de Color:", ["Neón Cyberpunk", "Lava Tectónica", "Océano Abisal", "Glitch Monocromático", "Matriz Sintética (Verde)"])
+    with f_c4:
+        forma_sel = st.selectbox("📐 Geometría Primaria:", ["Ondas Concéntricas", "Hexágonos & Polígonos", "Malla de Fractura (Grid)", "Vórtice Espiral"])
+
+    # Filtrar datos
     df_vj_pool = df_master.copy()
     if vj_dep != "Todos los Departamentos":
         df_vj_pool = df_vj_pool[df_vj_pool["departamento"] == vj_dep]
-    
     if vj_cat == "Eventos Destructivos / Históricos":
         df_vj_pool = df_vj_pool[df_vj_pool["impacto"] != "Monitoreo Instrumental"]
     elif vj_cat != "Todas las Categorías":
         df_vj_pool = df_vj_pool[df_vj_pool["tipo_profundidad"] == vj_cat]
 
-    if df_vj_pool.empty:
-        st.warning(f"No hay registros sísmicos para {vj_dep} en la categoría '{vj_cat}'. Usando datos de referencia nacional.")
-        sismo_vj = df_master.iloc[0].to_dict()
-    else:
-        sismo_vj = df_vj_pool.iloc[0].to_dict()
+    sismo_vj = df_vj_pool.iloc[0].to_dict() if not df_vj_pool.empty else df_master.iloc[0].to_dict()
+    
+    # Obtener sismos para canales secundarios
+    sismo_sec_1 = df_master[df_master["departamento"] == "Lima"].iloc[0].to_dict() if not df_master[df_master["departamento"] == "Lima"].empty else sismo_vj
+    sismo_sec_2 = df_master[df_master["departamento"] == "Arequipa"].iloc[0].to_dict() if not df_master[df_master["departamento"] == "Arequipa"].empty else sismo_vj
+    sismo_sec_3 = df_master[df_master["departamento"] == "Ica"].iloc[0].to_dict() if not df_master[df_master["departamento"] == "Ica"].empty else sismo_vj
 
-    st.caption(f"🎯 **Sismo Modulador Activo:** {sismo_vj['referencia']} | **Magnitud:** {sismo_vj['magnitud']} M | **Profundidad:** {sismo_vj['profundidad_km']} km | **Departamento:** {sismo_vj['departamento']}")
-
-    # Mapeo de paleta de colores para Canvas y Hydra
     paletas_config = {
-        "Neón Cyberpunk": {"hue_start": 280, "hue_range": 100, "hydra_color": "0.9, 0.1, 0.7"},
-        "Lava Tectónica": {"hue_start": 0, "hue_range": 50, "hydra_color": "1.0, 0.2, 0.05"},
-        "Océano Abisal": {"hue_start": 180, "hue_range": 80, "hydra_color": "0.05, 0.6, 0.95"},
-        "Glitch Monocromático": {"hue_start": 0, "hue_range": 0, "hydra_color": "0.8, 0.8, 0.8"},
-        "Matriz Sintética (Verde)": {"hue_start": 100, "hue_range": 50, "hydra_color": "0.1, 0.9, 0.2"}
+        "Neón Cyberpunk": {"hue": 280, "hydra": "0.9, 0.1, 0.7"},
+        "Lava Tectónica": {"hue": 0, "hydra": "1.0, 0.2, 0.05"},
+        "Océano Abisal": {"hue": 180, "hydra": "0.05, 0.6, 0.95"},
+        "Glitch Monocromático": {"hue": -1, "hydra": "0.8, 0.8, 0.8"},
+        "Matriz Sintética (Verde)": {"hue": 110, "hydra": "0.1, 0.9, 0.2"}
     }
     p_cfg = paletas_config[paleta_sel]
 
-    # Componente Canvas ultra-rápido en JavaScript
-    vj_interactive_html = f"""
-    <div style="background: #0d0b14; padding: 15px; border-radius: 10px; border: 1px solid #7209b7; color: white; font-family: sans-serif;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; background: #181528; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+    # COMPONENTE WIDESCREEN CON CONTROLES NATIVOS JS
+    vj_giant_html = f"""
+    <div id="vjContainer" style="background: #08060e; padding: 18px; border-radius: 12px; border: 1px solid #7209b7; color: white; font-family: sans-serif;">
+        <!-- RACK DE DIMMERS EXPANDIDO -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; background: #141122; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
             <div>
-                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">GANANCIA SÍSMICA: <span id="val_gain">1.0</span>x</label>
-                <input type="range" id="dim_gain" min="0.2" max="3.0" step="0.1" value="1.0" style="width: 100%;">
+                <label style="font-size: 10px; color: #f72585; font-weight: bold;">DISPOSICIÓN DE PANTALLA:</label><br>
+                <select id="screenMode" style="width: 100%; background: #08060e; color: #4cc9f0; border: 1px solid #7209b7; border-radius: 4px; padding: 4px; font-size: 11px;">
+                    <option value="single">🖥️ Pantalla Principal (1 Canal)</option>
+                    <option value="split2">⚡ Pantalla Dividida (2 Canales)</option>
+                    <option value="split4">🎛️ Matriz Quad (4 Canales)</option>
+                </select>
             </div>
             <div>
-                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">VELOCIDAD DE FASE: <span id="val_speed">1.0</span>x</label>
+                <label style="font-size: 10px; color: #4cc9f0; font-weight: bold;">GANANCIA SÍSMICA: <span id="lbl_gain">1.0</span>x</label>
+                <input type="range" id="dim_gain" min="0.2" max="3.5" step="0.1" value="1.0" style="width: 100%;">
+            </div>
+            <div>
+                <label style="font-size: 10px; color: #4cc9f0; font-weight: bold;">VELOCIDAD (SPEED): <span id="lbl_speed">1.0</span>x</label>
                 <input type="range" id="dim_speed" min="0.1" max="4.0" step="0.1" value="1.0" style="width: 100%;">
             </div>
             <div>
-                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">RETROALIMENTACIÓN: <span id="val_trail">0.15</span></label>
-                <input type="range" id="dim_trail" min="0.01" max="0.45" step="0.01" value="0.15" style="width: 100%;">
+                <label style="font-size: 10px; color: #4cc9f0; font-weight: bold;">RETROALIMENTACIÓN: <span id="lbl_trail">0.12</span></label>
+                <input type="range" id="dim_trail" min="0.01" max="0.45" step="0.01" value="0.12" style="width: 100%;">
             </div>
             <div>
-                <label style="font-size: 11px; color: #4cc9f0; font-weight: bold;">RUIDO TECTÓNICO: <span id="val_noise">15</span></label>
-                <input type="range" id="dim_noise" min="0" max="50" step="1" value="15" style="width: 100%;">
+                <label style="font-size: 10px; color: #4cc9f0; font-weight: bold;">ZOOM / ESCALA: <span id="lbl_zoom">1.0</span>x</label>
+                <input type="range" id="dim_zoom" min="0.5" max="2.5" step="0.1" value="1.0" style="width: 100%;">
+            </div>
+            <div>
+                <label style="font-size: 10px; color: #4cc9f0; font-weight: bold;">ROTACIÓN CONTINUA: <span id="lbl_rot">0.5</span></label>
+                <input type="range" id="dim_rot" min="0.0" max="2.0" step="0.1" value="0.5" style="width: 100%;">
+            </div>
+            <div>
+                <label style="font-size: 10px; color: #4cc9f0; font-weight: bold;">RUIDO TECTÓNICO: <span id="lbl_noise">15</span></label>
+                <input type="range" id="dim_noise" min="0" max="60" step="1" value="15" style="width: 100%;">
             </div>
         </div>
 
-        <canvas id="vjCanvas" width="960" height="420" style="width: 100%; border-radius: 6px; background: #000; display: block;"></canvas>
+        <!-- CANVAS GIGANTE WIDESCREEN -->
+        <canvas id="giantCanvas" width="1200" height="580" style="width: 100%; height: auto; border-radius: 8px; background: #000; display: block; border: 1px solid #2a2e3d;"></canvas>
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-            <span style="font-family: monospace; font-size: 12px; color: #aaa;">
-                Paleta: <b>{paleta_sel}</b> | Forma: <b>{forma_sel}</b> | Sismo: <b>{sismo_vj['departamento']} (M {sismo_vj['magnitud']})</b>
+        <!-- BARRA INFERIOR CON FULLSCREEN Y DESCARGA -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+            <span id="telemetryBar" style="font-family: monospace; font-size: 12px; color: #aaa;">
+                Carrier: <b>{sismo_vj['departamento']}</b> | M {sismo_vj['magnitud']} | Prof {sismo_vj['profundidad_km']} km | Forma: <b>{forma_sel}</b>
             </span>
-            <button onclick="downloadCapture()" style="background: #f72585; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Descargar Captura (.PNG)</button>
+            <div style="display: flex; gap: 8px;">
+                <button onclick="toggleFullscreen()" style="background: #7209b7; color: white; border: none; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">⛶ Pantalla Completa</button>
+                <button onclick="downloadPNG()" style="background: #f72585; color: white; border: none; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">💾 Guardar Fotograma (.PNG)</button>
+            </div>
         </div>
     </div>
 
     <script>
-        const canvas = document.getElementById('vjCanvas');
+        const canvas = document.getElementById('giantCanvas');
         const ctx = canvas.getContext('2d');
+        const container = document.getElementById('vjContainer');
 
-        const mag = {sismo_vj['magnitud']};
-        const prof = {sismo_vj['profundidad_km']};
-        const distFosa = {sismo_vj['distancia_fosa_km']};
-        
+        const ch1 = {{ mag: {sismo_vj['magnitud']}, prof: {sismo_vj['profundidad_km']}, dep: "{sismo_vj['departamento']}" }};
+        const ch2 = {{ mag: {sismo_sec_1['magnitud']}, prof: {sismo_sec_1['profundidad_km']}, dep: "{sismo_sec_1['departamento']}" }};
+        const ch3 = {{ mag: {sismo_sec_2['magnitud']}, prof: {sismo_sec_2['profundidad_km']}, dep: "{sismo_sec_2['departamento']}" }};
+        const ch4 = {{ mag: {sismo_sec_3['magnitud']}, prof: {sismo_sec_3['profundidad_km']}, dep: "{sismo_sec_3['departamento']}" }};
+
         const forma = "{forma_sel}";
-        const paleta = "{paleta_sel}";
-        const hueStart = {p_cfg['hue_start']};
-        const hueRange = {p_cfg['hue_range']};
+        const hueBase = {p_cfg['hue']};
 
         let t = 0;
+        const sMode = document.getElementById('screenMode');
         const dGain = document.getElementById('dim_gain');
         const dSpeed = document.getElementById('dim_speed');
         const dTrail = document.getElementById('dim_trail');
+        const dZoom = document.getElementById('dim_zoom');
+        const dRot = document.getElementById('dim_rot');
         const dNoise = document.getElementById('dim_noise');
 
-        dGain.oninput = () => document.getElementById('val_gain').innerText = dGain.value;
-        dSpeed.oninput = () => document.getElementById('val_speed').innerText = dSpeed.value;
-        dTrail.oninput = () => document.getElementById('val_trail').innerText = dTrail.value;
-        dNoise.oninput = () => document.getElementById('val_noise').innerText = dNoise.value;
+        dGain.oninput = () => document.getElementById('lbl_gain').innerText = dGain.value;
+        dSpeed.oninput = () => document.getElementById('lbl_speed').innerText = dSpeed.value;
+        dTrail.oninput = () => document.getElementById('lbl_trail').innerText = dTrail.value;
+        dZoom.oninput = () => document.getElementById('lbl_zoom').innerText = dZoom.value;
+        dRot.oninput = () => document.getElementById('lbl_rot').innerText = dRot.value;
+        dNoise.oninput = () => document.getElementById('lbl_noise').innerText = dNoise.value;
 
-        function draw() {{
-            const speed = parseFloat(dSpeed.value);
+        function renderEngine(cx, cy, w, h, data, customHue) {{
             const gain = parseFloat(dGain.value);
-            const trail = parseFloat(dTrail.value);
+            const zoom = parseFloat(dZoom.value);
+            const rotSpeed = parseFloat(dRot.value);
             const noise = parseFloat(dNoise.value);
 
-            t += 0.02 * speed;
-            ctx.fillStyle = `rgba(5, 3, 10, ${{trail}})`;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const freq = data.mag * 3.0 * gain;
+            const depth = (data.prof / 20.0) * zoom;
 
-            const cx = canvas.width / 2;
-            const cy = canvas.height / 2;
-            const freq = mag * 3.2 * gain;
-            const depthMod = prof / 20.0;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(cx - w/2, cy - h/2, w, h);
+            ctx.clip();
 
             if (forma === "Ondas Concéntricas") {{
-                const rings = 10 + Math.floor(freq);
+                const rings = 12 + Math.floor(freq);
                 for (let i = 0; i < rings; i++) {{
                     ctx.beginPath();
-                    const rBase = (i * 20 + (t * 50) % 250);
-                    for (let a = 0; a < Math.PI * 2; a += 0.15) {{
-                        const wave = Math.sin(a * freq + t) * depthMod + Math.cos(a * 4 - t) * (noise * 0.5);
+                    const rBase = (i * 22 * zoom + (t * 50) % (w * 0.45));
+                    for (let a = 0; a < Math.PI * 2; a += 0.12) {{
+                        const wave = Math.sin(a * freq + t) * depth + Math.cos(a * 4 - t) * (noise * 0.4);
                         const r = rBase + wave;
-                        const x = cx + Math.cos(a) * r;
-                        const y = cy + Math.sin(a) * r;
+                        const x = cx + Math.cos(a + t * rotSpeed * 0.2) * r;
+                        const y = cy + Math.sin(a + t * rotSpeed * 0.2) * r;
                         if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
                     }}
                     ctx.closePath();
-                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? `rgba(255,255,255,${{0.4 + (i % 2)*0.5}})` : `hsl(${{(hueStart + (i * 15 + t * 40)) % 360}}, 90%, 60%)`;
+                    ctx.strokeStyle = customHue === -1 ? `rgba(255,255,255,${{0.3 + (i%2)*0.5}})` : `hsl(${{(customHue + i * 15 + t * 40) % 360}}, 95%, 60%)`;
                     ctx.lineWidth = 1.8;
                     ctx.stroke();
                 }}
-            }} 
+            }}
             else if (forma === "Hexágonos & Polígonos") {{
-                const layers = 8;
+                const layers = 10;
+                const sides = Math.max(3, Math.floor(data.mag));
                 for (let i = 0; i < layers; i++) {{
                     ctx.beginPath();
-                    const sides = Math.max(3, Math.floor(mag));
-                    const rBase = (i * 30 + (t * 40) % 220);
-                    const rot = t * (i % 2 === 0 ? 1 : -1) * 0.5;
+                    const rBase = (i * 32 * zoom + (t * 40) % (w * 0.4));
+                    const rot = t * (i % 2 === 0 ? 1 : -1) * rotSpeed;
                     for (let j = 0; j <= sides; j++) {{
                         const a = (j / sides) * Math.PI * 2 + rot;
-                        const wave = Math.sin(j * 2 + t) * depthMod + (Math.random() - 0.5) * noise * 0.2;
+                        const wave = Math.sin(j * 2 + t) * depth + (Math.random() - 0.5) * noise * 0.2;
                         const r = rBase + wave;
                         const x = cx + Math.cos(a) * r;
                         const y = cy + Math.sin(a) * r;
                         if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
                     }}
                     ctx.closePath();
-                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? "#fff" : `hsl(${{(hueStart + i * 25) % 360}}, 95%, 55%)`;
+                    ctx.strokeStyle = customHue === -1 ? "#ffffff" : `hsl(${{(customHue + i * 22) % 360}}, 100%, 55%)`;
                     ctx.lineWidth = 2.2;
                     ctx.stroke();
                 }}
             }}
             else if (forma === "Malla de Fractura (Grid)") {{
-                const lines = 16;
+                const lines = 20;
                 for (let i = 0; i < lines; i++) {{
                     ctx.beginPath();
-                    const yPos = (i * (canvas.height / lines));
-                    for (let x = 0; x < canvas.width; x += 15) {{
-                        const yOffset = Math.sin(x * 0.03 * freq + t) * (depthMod * 3) + (Math.random() - 0.5) * noise;
-                        if (x === 0) ctx.moveTo(x, yPos + yOffset);
+                    const yPos = cy - h/2 + (i * (h / lines));
+                    for (let x = cx - w/2; x < cx + w/2; x += 12) {{
+                        const yOffset = Math.sin(x * 0.02 * freq + t) * depth + (Math.random() - 0.5) * noise;
+                        if (x === cx - w/2) ctx.moveTo(x, yPos + yOffset);
                         else ctx.lineTo(x, yPos + yOffset);
                     }}
-                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? `rgba(240,240,240,0.7)` : `hsl(${{(hueStart + i * 20) % 360}}, 85%, 60%)`;
-                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = customHue === -1 ? "rgba(230,230,230,0.7)" : `hsl(${{(customHue + i * 18) % 360}}, 85%, 60%)`;
+                    ctx.lineWidth = 1.6;
                     ctx.stroke();
                 }}
             }}
-            else if (forma === "Vórtice Espiral") {{
-                const spirals = 12;
+            else {{
+                const spirals = 14;
                 for (let i = 0; i < spirals; i++) {{
                     ctx.beginPath();
-                    const rad = Math.pow(i / spirals, 1.6) * (canvas.width * 0.45);
-                    const rot = t * (i % 2 === 0 ? 1 : -1) * 0.8;
-                    for (let a = 0; a < Math.PI * 2; a += 0.2) {{
+                    const rad = Math.pow(i / spirals, 1.5) * (w * 0.45) * zoom;
+                    const rot = t * (i % 2 === 0 ? 1 : -1) * rotSpeed;
+                    for (let a = 0; a < Math.PI * 2; a += 0.15) {{
                         const x = cx + Math.cos(a + rot) * (rad + Math.sin(a * 5 + t) * noise);
-                        const y = cy + Math.sin(a + rot) * (rad + Math.cos(a * 5 - t) * depthMod);
+                        const y = cy + Math.sin(a + rot) * (rad + Math.cos(a * 5 - t) * depth);
                         if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
                     }}
                     ctx.closePath();
-                    ctx.strokeStyle = paleta === "Glitch Monocromático" ? `hsl(0, 0%, ${{50 + i * 4}}%)` : `hsl(${{(hueStart + i * 30 + t * 50) % 360}}, 100%, 60%)`;
+                    ctx.strokeStyle = customHue === -1 ? `hsl(0, 0%, ${{40 + i * 4}}%)` : `hsl(${{(customHue + i * 25 + t * 40) % 360}}, 100%, 60%)`;
                     ctx.lineWidth = 2;
                     ctx.stroke();
                 }}
             }}
 
-            requestAnimationFrame(draw);
-        }}
-        draw();
+            // Label de departamento en la esquina del canal
+            ctx.fillStyle = "rgba(255,255,255,0.7)";
+            ctx.font = "bold 12px monospace";
+            ctx.fillText(`${{data.dep}} | M ${{data.mag}}`, cx - w/2 + 12, cy - h/2 + 20);
 
-        function downloadCapture() {{
+            ctx.restore();
+        }}
+
+        function mainLoop() {{
+            const spd = parseFloat(dSpeed.value);
+            t += 0.02 * spd;
+
+            ctx.fillStyle = `rgba(5, 3, 10, ${{parseFloat(dTrail.value)}})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const mode = sMode.value;
+            const h = canvas.height;
+            const w = canvas.width;
+
+            if (mode === "single") {{
+                renderEngine(w/2, h/2, w, h, ch1, hueBase);
+            }} 
+            else if (mode === "split2") {{
+                renderEngine(w * 0.25, h/2, w/2 - 4, h, ch1, hueBase);
+                renderEngine(w * 0.75, h/2, w/2 - 4, h, ch2, (hueBase + 120) % 360);
+            }} 
+            else if (mode === "split4") {{
+                renderEngine(w * 0.25, h * 0.25, w/2 - 4, h/2 - 4, ch1, hueBase);
+                renderEngine(w * 0.75, h * 0.25, w/2 - 4, h/2 - 4, ch2, (hueBase + 80) % 360);
+                renderEngine(w * 0.25, h * 0.75, w/2 - 4, h/2 - 4, ch3, (hueBase + 160) % 360);
+                renderEngine(w * 0.75, h * 0.75, w/2 - 4, h/2 - 4, ch4, (hueBase + 240) % 360);
+            }}
+
+            requestAnimationFrame(mainLoop);
+        }}
+        mainLoop();
+
+        function toggleFullscreen() {{
+            if (!document.fullscreenElement) {{
+                container.requestFullscreen().catch(err => alert(err.message));
+            }} else {{
+                document.exitFullscreen();
+            }}
+        }}
+
+        function downloadPNG() {{
             const link = document.createElement('a');
-            link.download = `sismo_${{paleta.replace(/\\s+/g, '_')}}_${{Date.now()}}.png`;
+            link.download = `sismo_vj_widescreen_${{Date.now()}}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
         }}
     </script>
     """
-    components.html(vj_interactive_html, height=560)
+    components.html(vj_giant_html, height=720)
 
-    # Generador Dinámico de Shaders Hydra
-    st.markdown("### 🔮 Código de Hydra Synth Sincronizado en Vivo")
-    st.caption("Pega este parche en [hydra.ojack.xyz](https://hydra.ojack.xyz). Se recompila según el Departamento, Categoría, Color y Forma seleccionados:")
+    # PARCHES DINÁMICOS DE HYDRA
+    st.markdown("### 🔮 Parches de Hydra Synth Generados en Vivo")
+    col_hy1, col_hy2 = st.columns(2)
     
-    hydra_color = p_cfg["hydra_color"]
-    hydra_sides = max(3, int(sismo_vj["magnitud"]))
-    hydra_freq = float(sismo_vj["magnitud"]) * 3.5
-    hydra_depth = float(sismo_vj["profundidad_km"]) / 20.0
-
-    if forma_sel == "Ondas Concéntricas":
-        hydra_code_dyn = f"""// Patch Ondas: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
-osc({hydra_freq:.1f}, 0.2, {hydra_depth:.2f})
+    with col_hy1:
+        st.markdown(f"**Patch Canal Principal:** {sismo_vj['departamento']} (M {sismo_vj['magnitud']})")
+        hydra_code_main = f"""// Live Patch Principal - Máquina Tierna ({sismo_vj['departamento']})
+osc({float(sismo_vj['magnitud'])*3.5:.1f}, 0.2, {float(sismo_vj['profundidad_km'])/20.0:.2f})
   .modulate(noise({float(sismo_vj['distancia_fosa_km'])/40.0:.2f}), () => Math.sin(time)*0.5)
-  .color({hydra_color})
-  .kaleid({hydra_sides})
-  .rotate(0.1, 0.05)
-  .out(o0)"""
-    elif forma_sel == "Hexágonos & Polígonos":
-        hydra_code_dyn = f"""// Patch Poligonal: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
-shape({hydra_sides}, 0.5, 0.02)
-  .scale(() => 1 + Math.sin(time*0.8)*0.4)
-  .repeat({int(hydra_depth + 3)}, {int(hydra_depth + 3)})
+  .color({p_cfg['hydra']})
+  .kaleid({max(3, int(sismo_vj['magnitud']))})
   .rotate(0.2, 0.1)
-  .color({hydra_color})
-  .modulatePixelate(voronoi({hydra_freq:.1f}, 0.5), 12)
   .out(o0)"""
-    elif forma_sel == "Malla de Fractura (Grid)":
-        hydra_code_dyn = f"""// Patch Grid Cortical: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
-voronoi({hydra_freq:.1f}, 0.3, 1.5)
-  .color({hydra_color})
-  .modulatePixelate(noise({hydra_depth:.2f}), 24)
-  .add(osc(20, 0.1, 0.5), 0.4)
-  .out(o0)"""
-    else:
-        hydra_code_dyn = f"""// Patch Vórtice Profundo: {sismo_vj['departamento']} ({sismo_vj['tipo_profundidad']}) - Paleta: {paleta_sel}
-shape({hydra_sides}, 0.6, 0.01)
-  .scale(() => 1 + Math.sin(time*0.5)*0.3)
-  .repeat({int(hydra_depth + 4)}, {int(hydra_depth + 4)})
-  .rotate(0.3, 0.15)
-  .modulate(osc(8, 0.05))
-  .color({hydra_color})
-  .out(o0)"""
+        st.code(hydra_code_main, language="javascript")
+        
+    with col_hy2:
+        st.markdown(f"**Patch Canal Secundario / Mezclador:** {sismo_sec_1['departamento']} (M {sismo_sec_1['magnitud']})")
+        hydra_code_sec = f"""// Live Patch Secundario - Mezclador Voronoi
+voronoi({float(sismo_sec_1['magnitud'])*4.0:.1f}, 0.3, 1.5)
+  .color(0.2, 0.8, 0.9)
+  .modulatePixelate(noise({float(sismo_sec_1['profundidad_km'])/15.0:.2f}), 16)
+  .add(src(o0), 0.4)
+  .out(o1)"""
+        st.code(hydra_code_sec, language="javascript")
 
-    st.code(hydra_code_dyn, language="javascript")
-
-# --- TAB MAPAS 2D / 3D ---
+# --- TAB 2: MAPAS 2D / 3D ---
 with tab_mapas:
     c_mapa, c_leyenda = st.columns([3, 1])
     with c_leyenda:
@@ -491,7 +534,7 @@ with tab_mapas:
                 tooltip={"html": "<b>{referencia}</b><br/>M: {magnitud} | Profundidad: {profundidad_km} km"}
             ))
 
-# --- TAB LÍNEA DE TIEMPO ---
+# --- TAB 3: LÍNEA DE TIEMPO ---
 with tab_timeline:
     st.subheader("Evolución Temporal de la Sismicidad")
     fig_time = px.scatter(
@@ -519,7 +562,7 @@ with tab_timeline:
         )
         st.plotly_chart(fig_dest, width="stretch")
 
-# --- TAB PROXIMIDAD Y TERRITORIO ---
+# --- TAB 4: PROXIMIDAD Y TERRITORIO ---
 with tab_territorio:
     st.subheader("Análisis Territorial y Cercanía Urbana")
     col_u1, col_u2 = st.columns(2)
@@ -539,7 +582,7 @@ with tab_territorio:
         )
         st.plotly_chart(fig_box, width="stretch")
 
-# --- TAB SUBDUCCIÓN ---
+# --- TAB 5: SUBDUCCIÓN ---
 with tab_tectonica:
     st.subheader("Perfil de Subducción (Plano de Wadati-Benioff)")
     fig_benioff = px.scatter(
@@ -551,7 +594,7 @@ with tab_tectonica:
     fig_benioff.update_yaxes(autorange="reversed")
     st.plotly_chart(fig_benioff, width="stretch")
 
-# --- TAB FÍSICA Y ENERGÍA ---
+# --- TAB 6: FÍSICA Y ENERGÍA ---
 with tab_energia:
     st.subheader("Física Sísmica y Energía Liberada")
     col_e1, col_e2 = st.columns(2)
@@ -572,7 +615,7 @@ with tab_energia:
         )
         st.plotly_chart(fig_rad, width="stretch")
 
-# --- TAB RÉPLICAS Y ENJAMBRES ---
+# --- TAB 7: RÉPLICAS Y ENJAMBRES ---
 with tab_secuencias:
     st.subheader("Detección de Secuencias Sísmicas y Réplicas")
     df_sec = df_filtrado[df_filtrado["id_secuencia"] != "None"]
@@ -587,7 +630,7 @@ with tab_secuencias:
     else:
         st.info("No se detectaron secuencias de sismo principal y réplicas con los filtros actuales.")
 
-# --- TAB PELIGRO SÍSMICO (B-VALUE) ---
+# --- TAB 8: PELIGRO SÍSMICO (B-VALUE) ---
 with tab_gutenberg:
     st.subheader("Análisis de Esfuerzo Tectónico (b-value de Gutenberg-Richter)")
     dep_analisis = st.selectbox("Seleccionar Departamento:", options=deps_list)
@@ -609,7 +652,7 @@ with tab_gutenberg:
         )
         st.plotly_chart(fig_gr, width="stretch")
 
-# --- TAB QGIS ---
+# --- TAB 9: QGIS ---
 with tab_qgis:
     st.subheader("Exportación de Datos Geoespaciales")
     def exportar_geojson(df):
